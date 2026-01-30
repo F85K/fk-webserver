@@ -1,0 +1,35 @@
+# Ingress om frontend + API via 1 domein te routeren
+# Vervang host door je eigen domein voor geldig SSL-certificaat
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fk-ingress
+  namespace: fk-webstack
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: fk-letsencrypt
+spec:
+  tls:
+    - hosts:
+        - fk.example.com
+      secretName: fk-tls
+  rules:
+    - host: fk.example.com
+      http:
+        paths:
+          # Frontend op /
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fk-frontend
+                port:
+                  number: 80
+          # API op /api
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: fk-api
+                port:
+                  number: 8000

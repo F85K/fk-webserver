@@ -1,0 +1,29 @@
+# Frontend Deployment (lighttpd)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-frontend
+  namespace: fk-webstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fk-frontend
+  template:
+    metadata:
+      labels:
+        app: fk-frontend
+    spec:
+      containers:
+        - name: fk-frontend
+          image: fk-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

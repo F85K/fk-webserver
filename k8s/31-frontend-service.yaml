@@ -1,0 +1,12 @@
+# Service voor frontend (intern)
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-frontend
+  namespace: fk-webstack
+spec:
+  selector:
+    app: fk-frontend
+  ports:
+    - port: 80
+      targetPort: 80

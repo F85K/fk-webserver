@@ -1,0 +1,16 @@
+# Cert-Manager ClusterIssuer (Let’s Encrypt)
+# Let op: vervang email en domein in ingress voor een echte publieke domeinnaam
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: fk-letsencrypt
+spec:
+  acme:
+    email: r1034515@student.thomasmore.be
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: fk-letsencrypt-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

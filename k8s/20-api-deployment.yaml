@@ -1,0 +1,56 @@
+# FastAPI Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-api
+  namespace: fk-webstack
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fk-api
+  template:
+    metadata:
+      labels:
+        app: fk-api
+    spec:
+      containers:
+        - name: fk-api
+          image: fk-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            # Mongo connectie settings
+            - name: MONGO_URL
+              value: mongodb://fk-mongodb:27017
+            - name: MONGO_DB
+              value: fkdb
+            - name: MONGO_COLLECTION
+              value: profile
+            - name: NAME_KEY
+              value: name
+            - name: DEFAULT_NAME
+              value: Frank Koch
+          livenessProbe:
+            # Liveness probe: herstart bij probleem
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            # Readiness probe: pas verkeer sturen als gezond
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            # Basis resources voor HPA demo
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
