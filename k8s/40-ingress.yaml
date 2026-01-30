@@ -7,14 +7,16 @@ metadata:
   namespace: fk-webstack
   annotations:
     kubernetes.io/ingress.class: nginx
-    cert-manager.io/cluster-issuer: fk-letsencrypt
+    # Gebruik fk-selfsigned voor lokaal testen (geen extra punten)
+    # Of fk-letsencrypt voor publiek certificaat (+2 punten)
+    cert-manager.io/cluster-issuer: fk-selfsigned
 spec:
   tls:
     - hosts:
-        - fk.example.com
+        - fk.local
       secretName: fk-tls
   rules:
-    - host: fk.example.com
+    - host: fk.local
       http:
         paths:
           # Frontend op /

@@ -1,0 +1,8 @@
+# Self-Signed Certificate Issuer (voor lokaal testen)
+# Dit geeft GEEN extra punten maar toont wel HTTPS
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: fk-selfsigned
+spec:
+  selfSigned: {}

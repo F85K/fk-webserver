@@ -11,7 +11,12 @@
 
     <script>
       // fetch user from API
-      fetch("http://localhost:8000/api/name")
+      // Voor lokaal: gebruik localhost, voor k8s: gebruik /api
+      const apiUrl = window.location.hostname === "localhost" 
+        ? "http://localhost:8000/api/name"
+        : "/api/name";
+      
+      fetch(apiUrl)
         .then((res) => res.json())
         .then((data) => {
           // get user name
