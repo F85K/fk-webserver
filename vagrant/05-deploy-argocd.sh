@@ -32,9 +32,18 @@ echo -e "\n[3/5] Installing ArgoCD..."
 kubectl create namespace argocd 2>/dev/null || true
 helm repo add argo https://argoproj.github.io/argo-helm
 helm repo update
+
+# Generate secure ArgoCD password if not set
+if [ -z "$ARGOCD_ADMIN_PASSWORD" ]; then
+  ARGOCD_ADMIN_PASSWORD=$(openssl rand -base64 12)
+  echo "⚠️  Generated ArgoCD password: $ARGOCD_ADMIN_PASSWORD"
+  echo "⚠️  Store this password securely (NOT in Git)"
+  echo "    Hint: echo '$ARGOCD_ADMIN_PASSWORD' > ~/.argocd-password && chmod 600 ~/.argocd-password"
+fi
+
 helm upgrade --install argocd argo/argo-cd \
   --namespace argocd \
-  --set configs.secret.argocdServerAdminPassword='admin123' \
+  --set configs.secret.argocdServerAdminPassword="$ARGOCD_ADMIN_PASSWORD" \
   --wait
 
 # 4. Deploy cert issuer + FK stack manifests
@@ -45,6 +54,17 @@ kubectl apply -f k8s/10-mongodb-deployment.yaml
 kubectl apply -f k8s/11-mongodb-service.yaml
 kubectl apply -f k8s/12-mongodb-init-configmap.yaml
 kubectl apply -f k8s/13-mongodb-init-job.yaml
+
+# Deploy secrets (from .env.local if available)
+if [ -f .env.local ]; then
+  echo "📝 Deploying secrets from .env.local..."
+  export $(cat .env.local | grep -v '^#' | xargs)
+  envsubst < k8s/99-secrets-template.yaml | kubectl apply -f -
+else
+  echo "⚠️  .env.local not found, skipping secret deployment"
+  echo "    Create .env.local from .env.local.example"
+fi
+
 kubectl apply -f k8s/20-api-deployment.yaml
 kubectl apply -f k8s/21-api-service.yaml
 kubectl apply -f k8s/22-api-hpa.yaml

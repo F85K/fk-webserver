@@ -1,0 +1,93 @@
+# Kubernetes secrets and sensitive files
+kubeadm-config/join-command.sh
+kubeadm-config/*.token
+kubeadm-config/*.secret
+*.kubeconfig
+.kube/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.secret
+secrets/
+credentials/
+
+# Vagrant sensitive data
+.vagrant/
+*.key
+*.pem
+vagrant_private_key
+
+# Backup files
+*.bak
+*.backup
+*.tmp
+
+# ArgoCD sensitive data
+argocd-secret.yaml
+argocd-password.txt
+argocd-initial-admin-secret
+
+# Database credentials
+mongo-password.txt
+db-credentials.*
+db-password.txt
+
+# Application secrets
+api-secrets.yaml
+app-secrets.yaml
+secret-*.yaml
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Node modules
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.Python
+venv/
+ENV/
+
+# Build outputs
+dist/
+build/
+*.egg
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+**/temp/
+
+# Local configuration overrides
+local.conf
+override.yml
+
+# CI/CD tokens
+.github/workflows/secrets.yml
+ci-secrets.txt
+
+# Kubeadm join commands
+join-*.sh
+join-command-*.txt
