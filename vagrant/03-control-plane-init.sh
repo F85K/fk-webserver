@@ -37,7 +37,15 @@ sleep 30
 
 # Verify API is responding
 echo "Checking API server..."
-max_attempts=10
+# Wait for nodes to be ready
+echo "Waiting for nodes to become ready..."
+kubectl wait --for=condition=Ready node --all --timeout=120s || true
+
+# Mark initialization complete
+touch /vagrant/kubeadm-config/.control-plane-ready
+chmod 666 /vagrant/kubeadm-config/.control-plane-ready
+
+echo "✓ Control plane initialized and ready for workers to join"
 attempts=0
 while ! kubectl cluster-info &>/dev/null && [ $attempts -lt $max_attempts ]; do
     echo "  Waiting for API server... ($((attempts+1))/$max_attempts)"

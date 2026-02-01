@@ -1,0 +1,342 @@
+---
+# FK Webstack - Kubernetes Manifests
+# Complete deployment of 3-tier application
+#
+# Apply with: kubectl apply -f .
+# Remove with: kubectl delete -f .
+
+# ============================================
+# 1. NAMESPACE - Isolated environment
+# ============================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fk-webstack
+  labels:
+    app: fk-webstack
+    version: "1.0"
+
+---
+# ============================================
+# 2. CONFIGMAP - MongoDB initialization data
+# ============================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fk-mongo-init
+  namespace: fk-webstack
+data:
+  init.js: |
+    // Initialize MongoDB with profile data
+    db = db.getSiblingDB('fkdb');
+    db.createCollection('profile');
+    db.profile.insertOne({
+      name: 'Frank Koch',
+      created_at: new Date()
+    });
+    print('✓ MongoDB initialized with profile');
+
+---
+# ============================================
+# 3. MONGODB - Database
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-mongodb
+  namespace: fk-webstack
+  labels:
+    app: fk-mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fk-mongodb
+  template:
+    metadata:
+      labels:
+        app: fk-mongodb
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:6
+        ports:
+        - containerPort: 27017
+          name: mongodb
+        env:
+        - name: MONGO_INITDB_DATABASE
+          value: fkdb
+        # Liveness probe: restart if MongoDB not responding
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - mongosh --eval "db.adminCommand('ping')"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Readiness probe: ready when fully initialized
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - mongosh --eval "db.adminCommand('ping')"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Resource limits
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: mongo-init
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: mongo-init
+        configMap:
+          name: fk-mongo-init
+
+---
+# MongoDB Service (ClusterIP - internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-mongodb
+  namespace: fk-webstack
+  labels:
+    app: fk-mongodb
+spec:
+  type: ClusterIP
+  ports:
+  - port: 27017
+    targetPort: 27017
+    name: mongodb
+  selector:
+    app: fk-mongodb
+
+---
+# ============================================
+# 4. FASTAPI - Backend
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-api
+  namespace: fk-webstack
+  labels:
+    app: fk-api
+spec:
+  replicas: 2  # 2 replicas by default, HPA scales 2-4
+  selector:
+    matchLabels:
+      app: fk-api
+  template:
+    metadata:
+      labels:
+        app: fk-api
+    spec:
+      # Wait for MongoDB to be ready before starting
+      initContainers:
+      - name: wait-for-mongodb
+        image: busybox:1.28
+        command: ['sh', '-c', 'echo Waiting for MongoDB... && sleep 5']
+      
+      containers:
+      - name: api
+        image: fk-api:1.0
+        imagePullPolicy: IfNotPresent  # Use local image
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: MONGO_URL
+          value: "mongodb://fk-mongodb:27017"
+        - name: MONGO_DB
+          value: "fkdb"
+        - name: MONGO_COLLECTION
+          value: "profile"
+        - name: DEFAULT_NAME
+          value: "Frank Koch"
+        
+        # Liveness probe: restart if API crashes
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+        
+        # Readiness probe: ready when connected to DB
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3
+        
+        # Resource limits for HPA
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+
+---
+# FastAPI Service (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-api
+  namespace: fk-webstack
+  labels:
+    app: fk-api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+  selector:
+    app: fk-api
+
+---
+# Horizontal Pod Autoscaler (HPA)
+# Scales API pods based on CPU usage
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fk-api-hpa
+  namespace: fk-webstack
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fk-api
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50  # Scale up when >50% CPU
+
+---
+# ============================================
+# 5. LIGHTTPD - Frontend
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-frontend
+  namespace: fk-webstack
+  labels:
+    app: fk-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fk-frontend
+  template:
+    metadata:
+      labels:
+        app: fk-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: fk-frontend:1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: http
+        
+        # Liveness probe
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+        
+        # Readiness probe
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3
+        
+        # Resource limits
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+
+---
+# Frontend Service (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-frontend
+  namespace: fk-webstack
+  labels:
+    app: fk-frontend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  selector:
+    app: fk-frontend
+
+---
+# ============================================
+# TESTING & ACCESS
+# ============================================
+# 
+# Check deployment:
+#   kubectl get pods -n fk-webstack
+#   kubectl get svc -n fk-webstack
+#   kubectl describe pod fk-api-xxx -n fk-webstack
+#
+# View logs:
+#   kubectl logs -f fk-api-xxx -n fk-webstack
+#   kubectl logs -f fk-mongodb-xxx -n fk-webstack
+#
+# Access frontend (port-forward):
+#   kubectl port-forward -n fk-webstack svc/fk-frontend 8080:80
+#   Open browser: http://localhost:8080
+#
+# Test API:
+#   kubectl port-forward -n fk-webstack svc/fk-api 8000:8000
+#   curl http://localhost:8000/api/name
+#   curl http://localhost:8000/api/container-id
+#
+# Scale manually:
+#   kubectl scale deployment fk-api --replicas=4 -n fk-webstack
+#
+# Delete everything:
+#   kubectl delete namespace fk-webstack

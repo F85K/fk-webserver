@@ -1,0 +1,33 @@
+Creëer je eigen Kubernetes cluster en deploy hierop de webstack die aan jou toegewezen is: Achternaam:Koch Voornaam:Frank Web Frontend:lighttpd API Service:FastAPI Database:MongoDB
+    
+
+
+
+Maak een web applicatie stack bestaande uit 3 containers:
+
+Een web frontend, die een javascript pagina toont (de javascript code komt in de frontend index.html.)
+Wanneer de pagina layout verandert, toont de webpagina de nieuwe layout automatisch
+Een FastAPI of Node.js service met
+Een API endpoint dat je naam ophaalt uit de database
+Een API endpoint dat de container ID van de API container ophaalt
+Wanneer je naam in de database verandert, verandert de naam op de webpagina automatisch (na een pagina refresh)
+Een database dat je naam opslaat
+Puntenverdeling basis:
+
+Maximaal 5/20 - Een stack in Docker
+Maximaal 10/20 - Een kind, microk8s, minikube... cluster met minimaal 1 worker node dat je stack runt
+Puntenverdeling extra:
+
+Toon je webpagina via HTTPS in je Kubernetes cluster gebruikmakende van een geldig publiek certificaat (gebruik cert-managerKoppelingen naar een externe site.) 
+Voeg een extra worker node toe aan je kubernetes cluster en toon scaling van je API gespreid over de nodes aan de hand van ingress
+Voeg een healthcheck toe die de API automatisch herstart wanneer deze unhealthy is 
+Monitor je cluster resources en performance aan de hand van PrometheusKoppelingen naar een externe site. 
+Zet een Kubeadm cluster op bestaande uit minstens 2 worker nodes en 1 controller node, waarop je stack runt en geloadbalanced wordt 
+Gebruik een Helm Chart om ArgoCDKoppelingen naar een externe site. op je kubernetes cluster op te zetten en implementeer een GitOps workflow om automatisch je applicatie te deployen -> +4/20 mogelijk
+De spelregels:
+
+Schrijf een korte documentatie met daarin een overzichtsschema van je oplossing, al je code, een korte uitleg wat deze code doet. Deze documentatie alleen levert je geen punten op, maar dient als naslagwerk bij twijfel. Is een onderdeel niet aanwezig in je documentatie, kan je hiervoor geen punten krijgen op het mondeling. Let dus op dat je elk gevraagd onderdeel aanhaalt in je documentatie. Upload je document als pdf.
+
+
+Zorg ervoor dat je documentatie een duidelijke, professionele layout heeft.
+Gebruik je initialen voor images en containernamen (FK)

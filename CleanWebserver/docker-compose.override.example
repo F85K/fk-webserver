@@ -1,0 +1,28 @@
+# ============================================
+# FK Webstack - Docker Compose Override Example
+# Use this to set local environment variables
+# ============================================
+#
+# NEVER COMMIT THIS FILE WITH REAL SECRETS!
+# 
+# To use:
+# 1. Copy this file: cp docker-compose.override.example docker-compose.override.yml
+# 2. Add to .gitignore: docker-compose.override.yml (already done)
+# 3. Set your local values
+# 4. Run: docker-compose up
+#
+# For team development, share docker-compose.override.example 
+# (with placeholder values) but NEVER the actual override file
+
+version: '3.8'
+
+services:
+  fk-mongodb:
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+
+  fk-api:
+    environment:
+      MONGO_URL: ${MONGO_URL:-mongodb://fk-mongodb:27017}
+      DEFAULT_NAME: ${DEFAULT_NAME:-Frank Koch}

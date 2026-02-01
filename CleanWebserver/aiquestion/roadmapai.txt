@@ -1,0 +1,703 @@
+# Kubernetes Web Stack Deployment - Project Roadmap
+
+## Project Overview
+Deploy a 3-container web application stack on a Kubernetes cluster with:
+- **Frontend**: lighttpd (web server serving JavaScript)
+- **API Service**: FastAPI (REST endpoints)
+- **Database**: MongoDB (data persistence)
+
+**Student**: Frank Koch  
+**Container Prefix**: FK
+
+---
+
+## Phase 1: Foundation - Docker Stack
+### Objectives
+- Create Docker images for all 3 components
+- Define docker-compose.yml for local testing
+- Verify all containers communicate and persist data
+- Generate Phase 1 log documenting all steps
+
+### Deliverables
+1. **Frontend Container (FK-frontend)**
+   - Dockerfile for lighttpd
+   - index.html with JavaScript that:
+     - Fetches `GET /api/name` from http://fk-api:5000
+     - Fetches `GET /api/container-id` from http://fk-api:5000
+     - Updates display every 5 seconds
+     - Displays student name (Frank Koch)
+     - Displays container ID of API pod
+   - Lighttpd configuration file (lighttpd.conf) listening on port 80
+
+2. **API Container (FK-api)**
+   - Dockerfile for FastAPI (Python 3.9+)
+   - main.py with:
+     - `GET /api/name` - queries MongoDB, returns `{"name": "Frank Koch"}`
+     - `GET /api/container-id` - returns `{"container_id": os.getenv('HOSTNAME')}`
+     - `GET /api/health` - returns `{"status": "healthy"}`
+     - Port: 5000
+     - All endpoints have detailed comments explaining functionality
+   - requirements.txt with: fastapi, uvicorn, pymongo
+
+3. **Database Container (FK-mongo)**
+   - MongoDB image: mongo:latest
+   - Initialize with script (init.js) that creates:
+     - Database: `fk_webdb`
+     - Collection: `users`
+     - Document: `{_id: 1, name: "Frank Koch"}`
+   - Persistent volume: `/data/db`
+   - Port: 27017
+
+4. **docker-compose.yml**
+   - Version: 3.8
+   - Services:
+     - `fk-mongo`: mongo:latest with volumes and init script
+     - `fk-api`: built from containers/api/Dockerfile with environment variables
+     - `fk-frontend`: built from frontend/Dockerfile
+   - Network: `fk-network` (bridge)
+   - All services inter-connected (fk-api connects to fk-mongo:27017)
+   - Health checks for all services
+   - Environment variables documented with comments
+
+### Testing Steps
+- Run: `docker-compose up -d`
+- Wait 10 seconds for MongoDB to initialize
+- Test API: `curl http://localhost:5000/api/health`
+- Test name endpoint: `curl http://localhost:5000/api/name`
+- Test container ID: `curl http://localhost:5000/api/container-id`
+- Access frontend: http://localhost (should display name and container ID)
+- Verify data persists: restart containers and check data remains
+
+### Phase 1 Logging
+- Create `phase1-deployment.log` documenting:
+  - Dockerfile creation for each component with build success/failure
+  - docker-compose.yml validation
+  - Container startup timestamps
+  - Health check results
+  - API endpoint test results with responses
+  - Frontend accessibility check
+  - Data persistence verification
+
+---
+
+## Phase 2: Kubernetes Cluster Deployment
+### Objectives
+- Set up Kubernetes cluster (minikube, microk8s, or kind)
+- Deploy Docker stack to Kubernetes with minimum 1 worker node
+- Verify all components functional in cluster
+- Generate Phase 2 log documenting all deployment steps
+
+### Deliverables
+1. **Kubernetes Cluster Setup**
+   - Choose platform: minikube, microk8s, or kind
+   - Minimum: 1 control plane + 1 worker node
+   - Create dedicated namespace: `fk-webstack`
+   - Verify cluster with: `kubectl get nodes`
+
+2. **Container Image Registry**
+   - Build images from Phase 1 Dockerfiles
+   - Load images into cluster or push to registry
+   - Image names: `fk-frontend:latest`, `fk-api:latest`, `fk-mongo:latest`
+
+3. **Kubernetes Manifests** (all in `k8s/` directory with detailed comments)
+   - `fk-namespace.yaml` - Create `fk-webstack` namespace
+   - `fk-mongo-deployment.yaml` - MongoDB with PersistentVolume, port 27017
+   - `fk-mongo-service.yaml` - ClusterIP service for mongo at port 27017
+   - `fk-api-deployment.yaml` - FastAPI with 1 replica, port 5000, liveness probe for `/api/health`
+   - `fk-api-service.yaml` - ClusterIP service for API at port 5000
+   - `fk-frontend-deployment.yaml` - lighttpd with 1 replica, port 80
+   - `fk-frontend-service.yaml` - NodePort service (port 30080 -> 80) for browser access
+   - `fk-configmap.yaml` - Initial MongoDB data and environment configuration
+
+4. **Verification Steps**
+   - Create namespace: `kubectl apply -f k8s/fk-namespace.yaml`
+   - Deploy all manifests: `kubectl apply -f k8s/`
+   - Verify pods running: `kubectl get pods -n fk-webstack` (should show 3 pods)
+   - Verify services: `kubectl get svc -n fk-webstack`
+   - Test API: `kubectl exec -it [api-pod-name] -n fk-webstack -- curl http://localhost:5000/api/name`
+   - Access frontend via NodePort: http://[cluster-ip]:30080
+   - Verify database persistence: Delete pod, verify data still exists after restart
+
+### Phase 2 Logging
+- Create `phase2-deployment.log` documenting:
+  - Cluster creation command and output
+  - Image build/load timestamps
+  - Each manifest deployment status (success/failure)
+  - Pod startup sequence and readiness status
+  - Service endpoint verification
+  - Frontend accessibility confirmation
+  - Cross-service communication tests
+
+---
+
+## Phase 3: HTTPS with Valid Certificate
+### Objectives
+- Secure cluster communication with TLS/SSL
+- Generate Phase 3 log documenting all steps
+
+### Deliverables
+- Install cert-manager on cluster: `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml`
+- Create Let's Encrypt ClusterIssuer manifest (`fk-issuer.yaml`)
+- Configure Ingress controller (nginx-ingress)
+- Create Ingress manifest (`fk-ingress.yaml`) with TLS configuration
+- Frontend accessible securely via HTTPS
+- Certificate auto-renewal configured
+
+### Phase 3 Logging
+- Create `phase3-deployment.log` documenting:
+  - cert-manager installation status
+  - Issuer creation and validation
+  - Ingress controller deployment
+  - Certificate provisioning timestamps
+  - HTTPS endpoint accessibility confirmation
+  - Certificate details (issuer, expiry date)
+
+---
+
+## Phase 4: Multi-Node Scaling with Ingress
+### Objectives
+- Demonstrate horizontal scaling across multiple nodes
+- Ensure at least 2 worker nodes total in cluster
+
+### Deliverables
+1. **Add Second Worker Node** (if not already present)
+   - Ensure second worker VM is running: `vagrant up fk-worker2`
+   - Get kubeadm join command from control plane:
+     ```bash
+     vagrant ssh fk-control -c "kubeadm token create --print-join-command"
+     # Output: kubeadm join 192.168.x.x:6443 --token xxxxx --discovery-token-ca-cert-hash sha256:xxxxx
+     ```
+   - Run kubeadm join on worker2:
+     ```bash
+     vagrant ssh fk-worker2 -c "sudo [KUBEADM_JOIN_COMMAND]"
+     # Replace [KUBEADM_JOIN_COMMAND] with output from above
+     ```
+   - Verify both workers are Ready:
+     ```bash
+     vagrant ssh fk-control -c "kubectl get nodes"
+     # Expected: fk-control Ready, fk-worker1 Ready, fk-worker2 Ready
+     ```
+   - Wait for node to be fully Ready: `vagrant ssh fk-control -c "kubectl wait --for=condition=Ready node --all --timeout=300s"`
+
+2. **Ingress Controller (already installed in Phase 3)**
+   - Verify nginx-ingress: `kubectl get pods -n ingress-nginx`
+   - Verify Ingress resource: `kubectl get ingress -n fk-webstack`
+
+3. **Scale API Deployment to 3 Replicas**
+   ```bash
+   # Scale the deployment
+   kubectl scale deployment fk-api -n fk-webstack --replicas=3
+   
+   # Wait for pods to become Ready
+   kubectl wait --for=condition=Ready pod -l app=fk-api -n fk-webstack --timeout=300s
+   
+   # Verify 3 pods running on different nodes
+   kubectl get pods -n fk-webstack -o wide
+   # Expected: 3 fk-api pods with different NODE names
+   ```
+
+4. **Verify Pod Distribution Across Nodes**
+   ```bash
+   # Show which node each pod runs on
+   kubectl get pods -n fk-webstack -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase
+   # Output should show pods on multiple nodes
+   ```
+
+5. **Test Load Balancing**
+   - Access frontend 10-15 times and refresh
+   - Container ID value should change (different pods)
+   - Each unique ID = different API pod
+
+### Phase 4 Logging
+- Create `phase4-deployment.log` documenting:
+  - `kubectl get nodes` output (verify ≥2 worker nodes)
+  - API scaling command: `kubectl scale deployment fk-api -n fk-webstack --replicas=3`
+  - Pod distribution: `kubectl get pods -n fk-webstack -o wide`
+  - Pods on different nodes: `kubectl get pods -n fk-webstack -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName`
+  - Load balancing test: 15x requests showing different container IDs
+  - Timestamps for each step
+
+---
+
+## Phase 5: Health Checks & Auto-Restart
+### Objectives
+- Implement automatic failure detection and recovery
+
+### Deliverables
+- Add liveness probe to API deployment (checks `/api/health` endpoint)
+- Add readiness probe to API deployment
+- Configure restart policy for automatic pod recovery
+- Test by killing API pod and verify automatic restart
+
+### Phase 5 Logging
+- Create `phase5-deployment.log` documenting:
+  - Liveness and readiness probe configuration
+  - Pod restart test results with timestamps
+  - Pod logs showing recovery process
+  - Verification that data persists after restart
+
+---
+
+## Phase 6: Prometheus Monitoring
+### Objectives
+- Monitor cluster resources and application performance
+
+### Deliverables
+- Deploy Prometheus to cluster
+- Configure API application to expose `/metrics` endpoint with Prometheus format
+- Deploy Prometheus scrape configuration for API pods
+- Set up Grafana dashboard for visualization
+- Monitor: CPU usage, memory consumption, request rates, pod restarts
+
+### Phase 6 Logging
+- Create `phase6-deployment.log` documenting:
+  - Prometheus deployment status
+  - Metrics endpoint validation
+  - Grafana dashboard creation
+  - Sample metrics collected
+  - Alert rules configured
+
+---
+
+## Phase 7: Advanced Kubernetes Setup - Kubeadm with GitOps
+
+### Part A: Kubeadm Cluster Setup
+- Set up full Kubeadm cluster from scratch
+- 1 control plane node + 2 worker nodes (minimum)
+- Deploy entire stack with load balancing
+- Verify pod distribution and scaling across nodes
+- Run all phases 1-6 on this cluster
+
+### Part B: GitOps with Helm & ArgoCD
+
+#### 1. Create Helm Chart Structure
+Directory layout in `helm-chart/fk-webstack/`:
+```
+fk-webstack/
+├── Chart.yaml          # Chart metadata (name: fk-webstack, version: 1.0.0)
+├── values.yaml         # Default values (image tags, replicas, etc.)
+├── values-dev.yaml     # Dev environment overrides
+├── values-prod.yaml    # Prod environment overrides
+└── templates/
+    ├── namespace.yaml
+    ├── mongo-configmap.yaml
+    ├── mongo-deployment.yaml
+    ├── mongo-service.yaml
+    ├── mongo-pvc.yaml
+    ├── api-deployment.yaml
+    ├── api-service.yaml
+    ├── api-configmap.yaml
+    ├── frontend-deployment.yaml
+    ├── frontend-service.yaml
+    └── frontend-configmap.yaml
+```
+
+#### 2. Helm values.yaml Template
+```yaml
+# Default values for fk-webstack
+namespace: fk-webstack
+
+# MongoDB Configuration
+mongodb:
+  image: mongo:latest
+  replicas: 1
+  port: 27017
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+
+# API Configuration
+api:
+  image: fk-api:latest
+  replicas: 1
+  port: 5000
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+
+# Frontend Configuration
+frontend:
+  image: fk-frontend:latest
+  replicas: 1
+  port: 80
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+
+# Database
+database:
+  name: fk_webdb
+  collection: users
+  initialData:
+    name: "Frank Koch"
+```
+
+#### 3. Helm Chart Validation
+- Run: `helm lint helm-chart/fk-webstack`
+- Render templates: `helm template fk-webstack helm-chart/fk-webstack`
+- Dry-run install: `helm install fk-webstack helm-chart/fk-webstack --dry-run --debug -n fk-webstack`
+
+#### 4. Git Repository Setup
+- Create Git repo with structure:
+```
+git-repo/
+├── helm-chart/              # Helm chart directory
+├── k8s/                     # (Alternative) Kubernetes manifests
+├── argocd-appconfig/        # ArgoCD Application manifest
+│   └── fk-application.yaml
+├── .gitignore              # ⚠️ CRITICAL: Ignore all secrets files
+└── .github/workflows/       # Optional: CI/CD validation
+    └── helm-lint.yaml
+```
+
+- **⚠️ CRITICAL - Security Configuration:**
+  - Create `.gitignore` with:
+    ```
+    # Secrets and sensitive files - NEVER commit these
+    secrets/
+    *.secret
+    *.env
+    .env
+    .env.local
+    credentials/
+    *-secret.yaml
+    argocd-secret/
+    sealed-secrets/
+    ```
+  - Add `values-secrets.yaml` to `.gitignore` - store locally only
+  - Configure git-secrets to prevent accidental commits: `git secrets --install && git secrets --register-aws`
+  - Review all files before commit: `git diff --cached` to verify no secrets
+
+- Commit only non-sensitive files
+- Repository must be accessible to Kubeadm cluster (public or with SSH keys configured)
+
+#### 5. ArgoCD Installation & Configuration
+
+**⚠️ SECRETS MANAGEMENT:**
+- NEVER commit ArgoCD passwords or admin tokens to Git
+- NEVER commit Kubernetes secrets to Git unencrypted
+- Store credentials in secure external system or use one of these approaches:
+
+**Option A: Sealed Secrets (Recommended for K8s)**
+- Install: `kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.18.0/controller.yaml -n kube-system`
+- Create secret: `kubectl create secret generic fk-db-secret --from-literal=password=ACTUAL_PASSWORD -n fk-webstack -o yaml | kubeseal --format yaml > sealed-secret.yaml`
+- Commit `sealed-secret.yaml` (encrypted, safe to commit)
+- Only the sealing key decrypts it on the cluster
+
+**Option B: ArgoCD Repo Credentials via UI**
+- Install ArgoCD: `kubectl create namespace argocd && kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml`
+- Access ArgoCD UI (port-forward): `kubectl port-forward svc/argocd-server -n argocd 8080:443`
+- Login credentials retrieved: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d` - ⚠️ Store this safely, NOT in Git
+- Add Git repo credentials via UI (not in code)
+- Change default password immediately
+
+**Standard ArgoCD Setup:**
+- Get initial password: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d` - ⚠️ NEVER commit this
+- Port-forward for access: `kubectl port-forward svc/argocd-server -n argocd 8080:443`
+- Login: admin / [initial-password] from above command
+- Change password immediately: Use UI to set new secure password
+
+#### 6. ArgoCD Application Manifest (`fk-application.yaml`)
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fk-webstack
+  namespace: argocd
+spec:
+  project: default
+  
+  # Source configuration (Git repo)
+  source:
+    repoURL: 'https://github.com/F85K/k8'
+    targetRevision: main
+    path: helm-chart
+    helm:
+      releaseName: fk-webstack
+      values: |
+        # Override specific values here
+        api:
+          replicas: 3
+          
+  # Destination (target cluster)
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: fk-webstack
+  
+  # Sync policy (automatic deployment)
+  syncPolicy:
+    automated:
+      prune: true          # Delete resources no longer in Git
+      selfHeal: true       # Automatically sync if cluster drifts
+    syncOptions:
+    - CreateNamespace=true
+```
+
+#### 7. Deploy via ArgoCD
+- Apply Application manifest: `kubectl apply -f argocd-appconfig/fk-application.yaml`
+- Verify Application status: `kubectl get application -n argocd`
+- Check sync status: `kubectl describe application fk-webstack -n argocd`
+- Monitor pods: `kubectl get pods -n fk-webstack -w`
+
+#### 8. Testing Automatic Deployment
+- Edit values in Git repo (e.g., change API replicas to 3)
+- Commit and push changes
+- Verify ArgoCD syncs automatically (watch Application status)
+- Confirm pods are updated: `kubectl get pods -n fk-webstack`
+- Check sync timestamp: `kubectl describe application fk-webstack -n argocd | grep "Last Sync Time"`
+
+#### 9. Verification Steps
+- Confirm all pods running: `kubectl get pods -n fk-webstack`
+- Verify services: `kubectl get svc -n fk-webstack`
+- Test API endpoints from frontend
+- Check ArgoCD Application sync status is "Synced"
+- Verify load balancing with multiple API replicas showing different container IDs
+- Test Git-triggered deployments with manifest changes
+
+---
+
+## Security Guidelines for AI Agent - CRITICAL FOR GIT/ARGOCD
+
+### What MUST NEVER Be Committed to Git:
+- ❌ Database passwords or connection strings
+- ❌ API keys or tokens (MongoDB, API credentials)
+- ❌ ArgoCD admin passwords or initial secrets
+- ❌ TLS certificates or private keys
+- ❌ SSH keys or authentication credentials
+- ❌ AWS/Cloud credentials
+- ❌ Any `.env` or environment variable files with secrets
+- ❌ Kubernetes Secrets objects with actual values
+
+### What CAN Be Committed to Git:
+- ✅ Helm chart templates with `{{ .Values.* }}` placeholders
+- ✅ values.yaml with non-sensitive defaults only
+- ✅ Deployment manifests without embedded secrets
+- ✅ Sealed Secrets files (encrypted, cannot be decrypted without sealing key)
+- ✅ Secret templates showing structure but with placeholder values
+- ✅ ConfigMaps (non-sensitive configuration only)
+
+### Safe Secret Management for GitOps:
+
+**For MongoDB Initial Data (Sensitive):**
+```yaml
+# ❌ DON'T do this:
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongo-creds
+data:
+  password: UGFzc3dvcmQxMjM=  # Base64 encoded - NOT SECURE
+
+# ✅ DO this instead (Sealed Secret):
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: mongo-creds
+spec:
+  encryptedData:
+    password: AgBvK3D2E+DlFqT1v2K... # Encrypted with sealing key only
+```
+
+**For ConfigMaps (Non-Sensitive):**
+```yaml
+# ✅ Safe to commit - contains only configuration structure
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongo-init
+  namespace: fk-webstack
+data:
+  init.js: |
+    db = db.getSiblingDB('fk_webdb');
+    db.users.insertOne({_id: 1, name: "Frank Koch"});
+```
+
+### Required .gitignore Entries:
+```
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.secret
+
+# Kubernetes secrets (unencrypted)
+*-secret.yaml
+secrets/
+sealed-secrets/
+
+# Local helm value overrides
+values-local.yaml
+values-secrets.yaml
+
+# ArgoCD credentials
+argocd-repo-creds.yaml
+argocd-secret/
+
+# Credentials and keys
+credentials/
+*.pem
+*.key
+*.crt
+id_rsa
+id_rsa.pub
+```
+
+### Pre-Commit Verification Steps for AI Agent:
+1. Before any `git push`, run: `git diff --cached | grep -i "password\|secret\|token\|key\|credential"` - should return nothing
+2. Configure git-secrets: `git secrets --install && git secrets --register-aws`
+3. Check for common secret patterns: `git secrets --scan`
+4. Review all staged files: `git diff --cached --name-only` - verify no secret files
+5. Never commit output of: `kubectl get secrets`, `docker inspect`, or any environment dumps
+
+### For Phase 7 - ArgoCD & Helm:
+**MongoDB Password Handling:**
+1. Create sealed secret: `kubectl create secret generic mongo-root-password --from-literal=password='your-secure-password' -n fk-webstack -o yaml | kubeseal --format yaml > sealed-mongo-password.yaml`
+2. Commit `sealed-mongo-password.yaml` (encrypted)
+3. Reference in Helm chart: `valueFrom: { secretKeyRef: { name: mongo-root-password, key: password } }`
+4. NEVER commit the original `--from-literal` password
+
+**Git Repository Credentials:**
+1. Generate GitHub Personal Access Token or SSH key
+2. Store in secure location (NOT in code, NOT in Git)
+3. Add to ArgoCD via UI or secure secret backend
+4. Verify credentials work: `git clone [repo-url]` from cluster
+
+### Post-Deployment Verification:
+- Run: `git log --oneline | head -20` and verify NO secret values appear
+- Check Git history for accidental commits: `git log -p | grep -i password` (should be empty)
+- Use GitHub/GitLab secret scanning to detect any leaked credentials
+- Monitor Git audit logs for unauthorized access
+
+### Phase 7 Logging
+- Create `phase7-deployment.log` documenting:
+  - Kubeadm cluster creation steps
+  - Node joining process (workers to control plane)
+  - Helm Chart structure and values
+  - ArgoCD installation and configuration
+  - GitOps sync events and timestamps
+  - Load balancing verification with pod distribution
+  - Automatic deployment triggers from Git
+
+---
+
+## Code Documentation Requirements for AI Agent
+
+### All Code Must Include:
+1. **File Header Comments** - Purpose, inputs, outputs, and main functionality
+2. **Function/Method Comments** - Clear explanation of what each function does
+3. **Inline Comments** - Explain "why" not just "what", especially for non-obvious logic
+4. **Variable Comments** - Describe purpose of all key variables
+5. **Error Handling Comments** - Explain what errors are caught and how they're handled
+6. **Configuration Comments** - Clearly mark all configurable values with environment variables or defaults
+
+### Dockerfile Comments Example:
+```
+# Use specific Python version for reproducibility
+FROM python:3.9-slim
+
+# Set working directory for application code
+WORKDIR /app
+
+# Copy requirements first for Docker layer caching
+COPY requirements.txt .
+
+# Install dependencies - comment each important package
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Expose port 5000 for API traffic
+EXPOSE 5000
+
+# Health check to monitor container status
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import requests; requests.get('http://localhost:5000/api/health')"
+
+# Run FastAPI with Uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]
+```
+
+### Kubernetes Manifest Comments Example:
+```yaml
+# Deployment for FastAPI application
+# Purpose: Run API service with health checks and auto-restart
+# Scaling: Can be scaled horizontally with replicas
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-api
+  namespace: fk-webstack
+spec:
+  # Number of replicas - increased during Phase 4
+  replicas: 1
+  
+  # Liveness probe - restarts pod if health check fails
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: 5000
+    # Comment: Initial delay allows app to start
+    initialDelaySeconds: 10
+    periodSeconds: 10
+```
+
+### Phase Completion Criteria
+Each phase's log file must show:
+- ✓ Timestamp when each step started and completed
+- ✓ All commands executed with their full output
+- ✓ Success/failure status of each deployment
+- ✓ Verification tests and their results
+- ✓ Any errors encountered and how they were resolved
+- ✓ Container/pod IDs for traceability
+
+### Frontend (lighttpd)
+- [ ] Displays JavaScript page
+- [ ] Auto-updates layout on page refresh
+- [ ] Fetches name from API
+- [ ] Fetches container ID from API
+- [ ] Real-time updates when database changes
+
+### API (FastAPI)
+- [ ] `GET /api/name` endpoint functional
+- [ ] `GET /api/container-id` endpoint functional
+- [ ] Connected to MongoDB
+- [ ] Health check endpoint implemented
+- [ ] Proper error handling
+
+### Database (MongoDB)
+- [ ] Stores student name
+- [ ] Persistent storage configured
+- [ ] Accessible to API service
+
+### General
+- [ ] All container names use FK prefix
+- [ ] All manifests documented
+- [ ] Kubernetes cluster running
+- [ ] All services accessible
+
+---
+
+## Documentation Requirements
+- **Format**: PDF
+- **Sections**:
+  1. Architecture diagram/overview schema
+  2. Complete code for all components
+  3. Docker configuration details
+  4. Kubernetes manifest explanations
+  5. Deployment instructions
+  6. Testing procedures
+  7. Extra features implementation details (if applicable)
+
+---
+
+## Success Criteria
+- [ ] Docker stack runs locally (Phase 1)
+- [ ] Kubernetes cluster operational (Phase 2)
+- [ ] All endpoints responding correctly
+- [ ] Frontend displays data from API & database
+- [ ] Auto-update functionality working
+- [ ] Documentation complete and professional

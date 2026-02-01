@@ -1,0 +1,79 @@
+# FK Webstack - Docker Compose for Local Testing
+#
+# This allows testing the 3-tier stack locally before deploying to Kubernetes
+#
+# Usage:
+#   docker-compose up          # Start all services
+#   docker-compose ps          # Check status
+#   docker-compose logs -f     # View logs
+#   docker-compose down        # Stop and remove
+
+version: '3.8'
+
+services:
+  # MongoDB database
+  fk-mongodb:
+    image: mongo:6
+    container_name: fk-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: fkdb
+    volumes:
+      # Initialize MongoDB with profile data
+      - ./mongodb-init:/docker-entrypoint-initdb.d/
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    networks:
+      - fk-network
+
+  # FastAPI backend
+  fk-api:
+    build:
+      context: ./containers/api
+      dockerfile: Dockerfile
+    container_name: fk-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Connection string to MongoDB (no auth needed for local dev)
+      MONGO_URL: "mongodb://fk-mongodb:27017"
+      MONGO_DB: "fkdb"
+      MONGO_COLLECTION: "profile"
+      DEFAULT_NAME: "Frank Koch"
+    depends_on:
+      fk-mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    networks:
+      - fk-network
+
+  # lighttpd frontend
+  fk-frontend:
+    build:
+      context: ./containers/frontend
+      dockerfile: Dockerfile
+    container_name: fk-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      fk-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    networks:
+      - fk-network
+
+networks:
+  fk-network:
+    driver: bridge
