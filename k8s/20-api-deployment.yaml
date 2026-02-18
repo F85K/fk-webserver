@@ -46,10 +46,10 @@ spec:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 20
             periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 2
+            timeoutSeconds: 10
+            failureThreshold: 3
           resources:
             # INCREASED: FastAPI needs more memory for MongoDB connections
             requests:
