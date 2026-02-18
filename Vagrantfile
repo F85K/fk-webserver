@@ -8,7 +8,7 @@
 Vagrant.configure("2") do |config|
   # Base box
   config.vm.box = "ubuntu/jammy64"
-  config.vm.boot_timeout = 300  # 5 minutes for slow systems
+  config.vm.boot_timeout = 600  # 10 minutes for slow systems
   
   # Shared settings
   config.vm.provider "virtualbox" do |vb|
@@ -23,8 +23,8 @@ Vagrant.configure("2") do |config|
     
     cp.vm.provider "virtualbox" do |vb|
       vb.name = "fk-control"
-      vb.memory = 3072
-      vb.cpus = 3
+      vb.memory = 6144
+      vb.cpus = 4
     end
 
     cp.vm.provision "shell", path: "vagrant/01-base-setup.sh"
@@ -39,7 +39,7 @@ Vagrant.configure("2") do |config|
     
     w1.vm.provider "virtualbox" do |vb|
       vb.name = "fk-worker1"
-      vb.memory = 2048
+      vb.memory = 3072
       vb.cpus = 2
     end
 
@@ -55,7 +55,7 @@ Vagrant.configure("2") do |config|
     
     w2.vm.provider "virtualbox" do |vb|
       vb.name = "fk-worker2"
-      vb.memory = 2048
+      vb.memory = 3072
       vb.cpus = 2
     end
 

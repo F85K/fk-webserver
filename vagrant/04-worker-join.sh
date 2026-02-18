@@ -29,6 +29,26 @@ if [ ! -f "$READY_MARKER" ]; then
     sleep 30
 fi
 
+# CRITICAL: Wait for Flannel/CNI to be ready on control plane
+# Workers need CNI to be functional before joining
+echo "⏳ Waiting for Flannel CNI to be ready on control plane..."
+MAX_WAIT=600
+ELAPSED=0
+FLANNEL_MARKER="/vagrant/kubeadm-config/.flannel-ready"
+
+while [ ! -f "$FLANNEL_MARKER" ] && [ $ELAPSED -lt $MAX_WAIT ]; do
+    REMAINING=$((MAX_WAIT - ELAPSED))
+    echo "   [$(date '+%H:%M:%S')] Waiting for CNI... ($REMAINING seconds remaining)"
+    sleep 15
+    ELAPSED=$((ELAPSED + 15))
+done
+
+if [ ! -f "$FLANNEL_MARKER" ]; then
+    echo "⚠️  Flannel marker not found, but continuing anyway..."
+    echo "   Note: Worker may need manual intervention if networking fails"
+    sleep 20
+fi
+
 # Wait for join command to be available (created by control plane)
 # This can take 2-5 minutes depending on control plane initialization
 MAX_WAIT=600  # 10 minutes
@@ -68,8 +88,17 @@ while [ $JOIN_ATTEMPT -le $MAX_JOIN_RETRIES ]; do
     else
         JOIN_ATTEMPT=$((JOIN_ATTEMPT + 1))
         if [ $JOIN_ATTEMPT -le $MAX_JOIN_RETRIES ]; then
-            echo "   Join failed, retrying in 10 seconds..."
+            echo "   Join failed, cleaning up Kubernetes state before retry..."
+            # Clean up kubeadm state for fresh retry
+            sudo systemctl stop kubelet || true
+            sudo rm -f /etc/kubernetes/kubelet.conf
+            sudo rm -f /etc/kubernetes/pki/ca.crt
+            sudo rm -rf /var/lib/kubelet/pki/*
+            echo "   Waiting 10 seconds before retry..."
             sleep 10
+            echo "   Restarting kubelet..."
+            sudo systemctl start kubelet || true
+            sleep 5
         fi
     fi
 done
@@ -85,4 +114,14 @@ cp /etc/kubernetes/kubelet.conf /home/vagrant/.kube/config
 sed -i 's/system:node/system:node/' /home/vagrant/.kube/config
 chown vagrant:vagrant /home/vagrant/.kube/config
 
-echo "✓ Worker node joined cluster"
+# Post-join verification: Wait for Flannel pod on this worker
+echo "⏳ Waiting for Flannel pod to start on this worker node (max 2 minutes)..."
+sleep 20  # Give Flannel DaemonSet time to schedule pod
+
+# Restart kubelet to ensure Flannel is properly picked up
+echo "Restarting kubelet to ensure CNI is loaded..."
+systemctl restart kubelet
+sleep 10
+
+echo "✓ Worker node joined cluster successfully"
+echo "   Note: It may take 30-60 seconds for the node to become Ready"
