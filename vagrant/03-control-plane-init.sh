@@ -61,8 +61,20 @@ fi
 echo "✓ API server is responding"
 
 # Wait additional time for API server to stabilize after kubelet restart
-echo "Giving API server 30 seconds to fully stabilize..."
-sleep 30
+# Extended to 60 seconds to allow etcd and static pods to fully initialize
+echo "Giving API server 60 seconds to fully stabilize..."
+sleep 60
+
+# Verify etcd is healthy before proceeding
+echo "Verifying etcd health..."
+for i in {1..30}; do
+    if KUBECONFIG=/root/.kube/config kubectl get componentstatuses | grep etcd | grep -q Healthy; then
+        echo "✓ etcd is healthy"
+        break
+    fi
+    echo "  etcd health check $i/30..."
+    sleep 2
+done
 
 # Wait for control plane node to be Ready
 echo "Waiting for control plane node to become Ready..."
@@ -76,6 +88,10 @@ touch /vagrant/kubeadm-config/.control-plane-ready
 chmod 666 /vagrant/kubeadm-config/.control-plane-ready
 
 echo "✓ Control plane is ready"
+
+# Give etcd extra time to settle after TLS bootstrap checks
+echo "Waiting 45 seconds for etcd to fully stabilize before Flannel installation..."
+sleep 45
 
 # Install Flannel CNI with specific stable version
 echo "Installing Flannel CNI (v0.25.1)..."
