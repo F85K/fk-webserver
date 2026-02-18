@@ -5,7 +5,7 @@ metadata:
   name: fk-api
   namespace: fk-webstack
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: fk-api
@@ -37,20 +37,24 @@ spec:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             # Readiness probe: pas verkeer sturen als gezond
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
           resources:
-            # Basis resources voor HPA demo
+            # INCREASED: FastAPI needs more memory for MongoDB connections
             requests:
               cpu: "100m"
-              memory: "128Mi"
+              memory: "256Mi"
             limits:
               cpu: "500m"
-              memory: "256Mi"
+              memory: "512Mi"
