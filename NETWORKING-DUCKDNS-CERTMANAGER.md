@@ -1,5 +1,14 @@
 # Networking, DNS, and HTTPS: DuckDNS + cert-manager Guide
 
+**⚠️ IMPORTANT:** This setup provides **LOCAL HTTPS ONLY** via the VirtualBox internal network (192.168.56.0/24).
+
+**Current Access:**
+- ✅ Works: `https://192.168.56.12:30808/` (from Windows)
+- ✅ Works: `https://fk-webserver.duckdns.org:30808/` (with hosts file, local network)
+- ❌ Does NOT work externally (no port forwarding configured)
+
+**Why DuckDNS then?** Demonstrates cert-manager + DNS-01 validation for learning purposes. If port forwarding were added, external access would "just work."
+
 Complete guide explaining the networking architecture, DNS resolution, and HTTPS implementation using DuckDNS and cert-manager in the FK Webstack project.
 
 ---
@@ -25,6 +34,7 @@ Complete guide explaining the networking architecture, DNS resolution, and HTTPS
 # Control Plane Node
 config.vm.define "fk-control" do |control|
   control.vm.network "private_network", ip: "192.168.56.10"
+  # NO port forwarding - internal network only
 end
 
 # Worker Node 1
@@ -32,35 +42,43 @@ config.vm.define "fk-worker1" do |worker1|
   worker1.vm.network "private_network", ip: "192.168.56.11"
 end
 
-# Worker Node 2
+# Worker Node 2 (runs frontend/API)
 config.vm.define "fk-worker2" do |worker2|
   worker2.vm.network "private_network", ip: "192.168.56.12"
 end
+# Note: No port forwarding configured → Local/internal access ONLY
 ```
 
 ### Network Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Windows Host (192.168.56.1)                                    │
-│  ├── hosts file entry: 192.168.56.12 fk-webserver.duckdns.org  │
-│  └── Internet access for DuckDNS & Let's Encrypt               │
-└─────────────────┬───────────────────────────────────────────────┘
-                  │ VirtualBox Network: 192.168.56.0/24
-    ┌─────────────┼─────────────┬──────────────────────┐
-    │             │             │                      │
-┌───┴───┐    ┌────┴────┐   ┌────┴────┐          ┌─────┴──────┐
-│fk-ctl │    │fk-wkr1  │   │fk-wkr2  │          │DuckDNS     │
-│ .10   │    │ .11     │   │ .12     │          │(fk-websvr) │
-├───────┤    ├─────────┤   ├─────────┤          └─────┬──────┘
-│Flannel│    │Flannel  │   │Flannel  │                │
-│ 10.244│    │10.244.1 │   │10.244.2 │            Internet
-└───────┘    └─────────┘   └─────────┘            (Public IP)
-     ↑           ↑               ↑
-     └───────────┴───────────────┘
-     Kubernetes Cluster Network
-     (Pod-to-Pod via Flannel)
+┌──────────────────────────────────────┐
+│  Windows Host                        │
+│  ├─ Can access internal VMs via SSH  │
+│  └─ VirtualBox network only          │
+└────────────┬──────────────────────────┘
+             │ 
+   [VirtualBox NAT/Internal Network]
+   192.168.56.0/24
+   ├────────────────────────────────┐
+   │                                │
+   ↓                                ↓
+fk-control                      fk-worker2
+(192.168.56.10)                 (192.168.56.12)
+├─ Kubernetes API               ├─ Ingress Controller
+├─ etcd                         ├─ Frontend Pod
+└─ Control Plane               └─ API Pods
+
+Kubernetes Pod Network (10.244.0.0/16):
+├─ Pods on fk-control (10.244.0.0/24)
+├─ Pods on fk-worker1 (10.244.1.0/24)  
+└─ Pods on fk-worker2 (10.244.2.0/24)
+
+HTTPS Access: 192.168.56.12:30808 (internal only)
+Public Internet: NOT ACCESSIBLE (no port forwarding)
 ```
+
+**⚠️ IMPORTANT:** This is a **LOCAL-ONLY** setup. The cluster runs in VirtualBox with NO external port forwarding configured.
 
 ### IP Address Map
 
@@ -85,29 +103,40 @@ DuckDNS is a **free dynamic DNS service** that:
 
 ### Why We Need DuckDNS for HTTPS
 
-#### The Challenge: Local Development + HTTPS
+#### The Actual Setup: Local HTTPS Only
 
-We want to access the cluster from outside using HTTPS:
+We want to access the cluster from Windows using HTTPS on the **local VirtualBox network**:
 ```
-https://fk-webserver.duckdns.org:30808/
+https://192.168.56.12:30808/  (via internal IP)
+or
+https://fk-webserver.duckdns.org:30808/  (if DuckDNS resolves locally)
 ```
 
-But we're running locally in VirtualBox without a public IP address.
+**Current Status:**
+- ✅ HTTPS configured and working
+- ✅ Certificate provisioned from Let's Encrypt
+- ✅ Accessible from Windows via VirtualBox network
+- ❌ **NOT accessible externally** (no port forwarding to host)
+- ⚠️ DuckDNS configured but only works locally
 
-#### Solution: DuckDNS + DNS-01 Validation
+#### Why DuckDNS Was Configured (Even Though Not Externally Accessible)
+
+1. **Demonstrates cert-manager + DNS-01 integration** - Part of assignment requirements
+2. **Testing DNS-based certificate validation** - Learn how ACME works
+3. **Local DNS name resolution** - Maps fk-webserver.duckdns.org to 192.168.56.12 internally
+4. **Future scalability** - If port forwarding is enabled, external access would "just work"
+
+#### Current Access Methods
 
 ```
-Local Machine (Windows)
-    ↓
-DuckDNS (fk-webserver.duckdns.org)
-    ↓
-Maps to Local IP (192.168.56.12)
-    ↓
-VirtualBox Network
-    ↓
-Kubernetes Ingress (port 30808)
-    ↓
-Frontend at HTTPS ✅
+From Windows Host:
+├─ Internal VirtualBox Network: 192.168.56.12:30808 ✅ Works
+├─ SSH into VM then localhost:30808 ✅ Works  
+└─ Internet (public DuckDNS IP) ❌ No port forwarding
+
+DNS Resolution:
+├─ Windows hosts file: 192.168.56.12 fk-webserver.duckdns.org ✅ Local
+└─ Public DuckDNS servers: Resolves but unreachable ❌ No port forward
 ```
 
 ### How DuckDNS Works
@@ -133,23 +162,31 @@ curl "https://www.duckdns.org/update?domains=fk-webserver&token=YOUR_TOKEN&ip=AU
 - cert-manager webhook uses token to authenticate with DuckDNS
 - DuckDNS resolves domain to your local machine
 
-#### Step 3: DNS Query Path
+#### Step 3: DNS Query Path (Local Only)
 
 ```
 Browser on Windows:
   "What is fk-webserver.duckdns.org?"
        ↓
-System DNS Resolver (Windows):
-  "Let me ask the internet"
-       ↓
-DuckDNS Servers (Internet):
-  "That's 192.168.56.12 (or your local IP)"
+Windows hosts file (/etc/hosts equivalent):
+  "That's 192.168.56.12 (local VirtualBox network)"
        ↓
 Browser:
   "Connect to 192.168.56.12:30808"
        ↓
 VirtualBox Network → fk-worker2 → Kubernetes Ingress → Frontend ✅
+
+Alternative (if querying internet DNS):
+Windows DNS Resolver:
+  "Let me ask DuckDNS servers"
+       ↓
+DuckDNS Servers (Internet):
+  "That's [Public IP - NOT FORWARDED]"
+       ↓
+Connection FAILS ❌ (No port forwarding configured)
 ```
+
+**How it actually works:** Windows `hosts` file (local network) takes priority over internet DNS.
 
 ### Configuration Files for DuckDNS
 
@@ -354,60 +391,80 @@ helm upgrade --install cert-manager-webhook-duckdns \
 
 ---
 
-## Complete Workflow: From Browser to HTTPS
+## Complete Workflow: From Browser to HTTPS (Local Network)
 
 ### The Full Certificate Provisioning Flow
 
 ```
-1. HUMAN: Runs setup-letsencrypt.sh
+1. HUMAN: Runs setup-letsencrypt.sh (inside VM)
    └─ Provides DUCKDNS_TOKEN in .env.local
 
-2. cert-manager-webhook-duckdns boots
-   └─ Reads DUCKDNS_TOKEN from Kubernetes secret
+2. cert-manager boots in cluster
+   └─ Reads DUCKDNS_TOKEN
 
-3. Ingress manifest applied
+3. DuckDNS webhook installed
+   └─ Can authenticate with DuckDNS API
+
+4. Ingress manifest applied
    └─ Annotation: cert-manager.io/cluster-issuer: cert-manager-webhook-duckdns-prod
 
-4. cert-manager Controller watches Ingress
+5. cert-manager Controller watches Ingress
    └─ Detects annotation → Creates Certificate resource
 
-5. cert-manager creates ACME order
+6. cert-manager creates ACME order
    └─ "I want certificate for fk-webserver.duckdns.org"
 
-6. Let's Encrypt responds
+7. Let's Encrypt responds
    └─ "Prove you control fk-webserver.duckdns.org"
 
-7. DNS-01 Challenge (DuckDNS)
+8. DNS-01 Challenge (DuckDNS)
    ├─ cert-manager calls DuckDNS webhook
    ├─ Webhook creates DNS TXT record (via DuckDNS API)
-   └─ Let's Encrypt checks DNS record
+   └─ Let's Encrypt checks DNS record ✅
 
-8. Validation Success ✅
-   └─ Let's Encrypt issues certificate
+9. Validation Success ✅
+   └─ Let's Encrypt issues real HTTPS certificate
 
-9. cert-manager stores certificate
-   └─ In secret: fk-webserver-tls-cert
+10. cert-manager stores certificate
+    └─ In secret: fk-webserver-tls-cert
 
-10. NGINX Ingress loads TLS certificate
+11. NGINX Ingress loads TLS certificate
     └─ From secret fk-webserver-tls-cert
 
-11. HTTPS Ready
-    └─ Browser connects: https://fk-webserver.duckdns.org:30808/
-    └─ NGINX serves certificate → HTTPS ✅
+12. HTTPS Ready (Local Network)
+    └─ Access: https://192.168.56.12:30808/ (internal IP)
+    └─ Or: https://fk-webserver.duckdns.org:30808/ (with hosts file)
+    └─ Certificate: Valid Let's Encrypt ✅
+    └─ External: NOT accessible (no port forwarding)
 ```
 
 ### Timeline
 
 | Time | Event |
 |------|-------|
-| T=0s | `setup-letsencrypt.sh` starts |
+| T=0s | `setup-letsencrypt.sh` starts (inside VM) |
 | T=30s | cert-manager pods running |
 | T=60s | DuckDNS webhook pod running |
 | T=120s | DNS TXT record created & verified |
 | T=180s | Let's Encrypt issues certificate |
 | T=210s | Certificate stored in Kubernetes secret |
 | T=240s | NGINX Ingress loads certificate |
-| T=270s | **HTTPS ready!** 🎉 |
+| T=270s | **HTTPS ready (local network)!** 🎉 |
+
+### Actual Access (What Really Works)
+
+```
+✅ From Windows (via VirtualBox network):
+   curl https://192.168.56.12:30808/
+   (or with hosts file: https://fk-webserver.duckdns.org:30808/)
+
+✅ From inside VM:
+   kubectl exec ... -- curl https://localhost:30808/
+
+❌ From external internet:
+   curl https://fk-webserver.duckdns.org:30808/
+   (Port forwarding not configured)
+```
 
 ---
 
@@ -509,10 +566,19 @@ bash /vagrant/setup-letsencrypt.sh
 # 6. Wait for certificate (2-3 minutes)
 kubectl get certificate -n fk-webstack -w
 
-# 7. Once READY=True, test access
-curl https://fk-webserver.duckdns.org
-# Should work without certificate warnings for public cert
+# 7. Once READY=True, test access (LOCAL NETWORK ONLY)
+curl --insecure https://192.168.56.12:30808/
+# (--insecure because of local cert, or use -k)
+# Or from Windows: Add to hosts file and use domain name
+
+# 8. On Windows (after adding hosts file)
+curl https://fk-webserver.duckdns.org:30808/ --insecure
 ```
+
+**⚠️ NOTE:** External internet access requires:
+- Vagrant port forwarding configuration
+- Router port forwarding (30808 → 443)
+- Currently NOT configured → Local-only access
 
 ---
 
@@ -605,19 +671,36 @@ kubectl get secret fk-webserver-tls-cert -n fk-webstack -o yaml
 # Expected: Contains tls.crt and tls.key
 ```
 
-#### 8. End-to-End HTTPS Test
+#### 8. End-to-End HTTPS Test (Local Network)
 
 ```powershell
-# Test from Windows
-curl.exe -v https://fk-webserver.duckdns.org:30808/
+# Test 1: From Windows via internal IP
+curl.exe -k https://192.168.56.12:30808/
 
 # Expected response:
-# SSL/TLS version: TLSv1.3
-# Certificate: fk-webserver.duckdns.org
-# Issuer: Let's Encrypt Authority X3
-# HTTP/1.1 200 OK
-# (Frontend HTML returned)
+# Certificate: fk-webserver.duckdns.org (valid Let's Encrypt)
+# Status: 200 OK
+# Body: Frontend HTML
+# (-k ignores cert warnings for self-signed/internal)
+
+# Test 2: From Windows with domain name (if hosts file updated)
+curl.exe -k https://fk-webserver.duckdns.org:30808/
+
+# Test 3: From inside VM
+vagrant ssh fk-control -c "curl -k https://192.168.56.12:30808/"
+
+# Test 4: Browser access (from Windows)
+# 1. Add hosts file: 192.168.56.12 fk-webserver.duckdns.org
+# 2. Open: https://192.168.56.12:30808/
+# 3. Accept certificate warning (local cert or self-signed)
+# 4. Frontend appears
 ```
+
+**Current Status:**
+- ✅ HTTPS works on internal VirtualBox network
+- ✅ Valid Let's Encrypt certificate
+- ✅ Accessible from Windows via 192.168.56.12:30808
+- ❌ NOT accessible from internet (no port forwarding)
 
 ### Troubleshooting Common Issues
 
@@ -799,17 +882,17 @@ bash verify-https.sh
 ### The Problem
 ```
 Need:  HTTPS certificate for local Kubernetes cluster
-Challenge: No public IP, limited to localhost
-Solution needed: Automated certificate provisioning with DNS validation
+Challenge: Local development in VirtualBox, no external access yet
+Solution needed: Demonstrates cert-manager + DNS-01 validation
 ```
 
-### The Solution
+### The Solution (For Local Development)
 ```
 DuckDNS:
 - Free dynamic DNS service
-- Maps fk-webserver.duckdns.org to local machine
-- Provides DNS records for ACME validation
-- Works with Let's Encrypt DNS-01 challenge
+- Maps fk-webserver.duckdns.org to a public IP (DNS-01 validation)
+- Allows cert-manager to prove domain ownership to Let's Encrypt
+- Works for local network via hosts file
 
 cert-manager:
 - Kubernetes-native certificate automation
@@ -819,14 +902,29 @@ cert-manager:
 - Stores certificates in Kubernetes secrets
 ```
 
-### Why Not Alternatives?
+### Current Setup (What Actually Works)
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Self-signed** | No external deps | Browser warning, not real certificate ❌ |
-| **Manual cert** | Full control | Manual renewal, error-prone ❌ |
-| **HTTP-01** | Simpler ACME | Needs public port 80 access ❌ |
-| **DNS-01 + DuckDNS** | Automated ✅ | Requires DuckDNS token ✅ |
+```
+Local VirtualBox Network (192.168.56.0/24):
+├─ Internal HTTPS: 192.168.56.12:30808 ✅ Works
+├─ W/ hosts file: fk-webserver.duckdns.org:30808 ✅ Works
+└─ External internet: ❌ Needs port forwarding
+
+Port Configuration:
+├─ HTTP internal: 80:32685
+├─ HTTPS internal: 443:30808
+└─ External ports: NOT forwarded (Vagrantfile has no port_forward)
+```
+
+### To Enable External Access (Future)
+
+Would need to add to Vagrantfile:
+```ruby
+config.vm.network "forwarded_port", guest: 80, host: 80
+config.vm.network "forwarded_port", guest: 443, host: 443
+```
+
+Then DuckDNS + cert-manager would enable full external HTTPS access automatically.
 
 ### Files Involved
 
@@ -877,34 +975,36 @@ helm list -n cert-manager
 # cert-manager    jetstack/cert-manager-v1.19.3
 ```
 
-✅ **ClusterIssuer configured:**
+✅ **ClusterIssuer configured (Let's Encrypt):**
 ```bash
 kubectl get clusterissuer
 # NAME                                      READY
 # cert-manager-webhook-duckdns-production   True
 ```
 
-✅ **Certificate provisioned:**
+✅ **Certificate provisioned (Valid Let's Encrypt):**
 ```bash
 kubectl get certificate -n fk-webstack
 # NAME                      READY  STATUS
 # fk-webserver-tls-cert     True   Ready
 ```
 
-✅ **HTTPS accessible:**
+✅ **HTTPS accessible (Local Network):**
 ```
-https://fk-webserver.duckdns.org:30808/
-# SSL: Valid Let's Encrypt certificate
+curl -k https://192.168.56.12:30808/
+# SSL: Valid Let's Encrypt certificate ✅
 # Domain: fk-webserver.duckdns.org
-# Status: ✅ Secure connection
+# Status: Secure connection (local network)
 ```
 
 **Implementation Files:**
-- [k8s/40-ingress.yaml](k8s/40-ingress.yaml) - HTTPS Ingress
+- [k8s/40-ingress.yaml](k8s/40-ingress.yaml) - HTTPS Ingress configuration
 - [k8s/50-cert-issuer.yaml](k8s/50-cert-issuer.yaml) - Let's Encrypt issuer
-- [setup-letsencrypt.sh](setup-letsencrypt.sh) - Installation
+- [setup-letsencrypt.sh](setup-letsencrypt.sh) - Installation script
 - [vagrant/05-deploy-argocd.sh](vagrant/05-deploy-argocd.sh) - Deployment
 - [.env.local.example](.env.local.example) - Secret template
+
+**Note:** While the certificate is a valid public Let's Encrypt certificate, the cluster is only accessible via the local VirtualBox network. DuckDNS + cert-manager demonstrate proper DNS-01 ACME validation and would enable full external access if port forwarding were configured.
 
 ---
 
