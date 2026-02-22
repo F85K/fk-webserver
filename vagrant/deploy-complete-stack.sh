@@ -348,28 +348,32 @@ if [ -z "$DUCKDNS_TOKEN" ]; then
     warning "DUCKDNS_TOKEN not set - DuckDNS DNS-01 validation will not work"
     warning "Create .env.local in workspace root with: DUCKDNS_TOKEN=your_token"
 else
-    log "DUCKDNS_TOKEN is set, installing webhook via Helm chart..."
+    log "DUCKDNS_TOKEN is set, installing webhook from GitHub repository..."
     
     # Create DuckDNS token secret in cert-manager namespace
     "$KUBECTL" create secret generic duckdns-token --from-literal=token="$DUCKDNS_TOKEN" -n cert-manager --dry-run=client -o yaml | "$KUBECTL" apply -f -
     success "DuckDNS token secret created"
     
-    # Add Helm repo and install DuckDNS webhook chart
-    helm repo add ebrianne.github.io https://ebrianne.github.io/helm-charts
-    helm repo update ebrianne.github.io
+    # Clone DuckDNS webhook from GitHub and install locally
+    cd /tmp
+    if [ -d cert-manager-webhook-duckdns ]; then
+        log "DuckDNS webhook already cloned, updating..."
+        cd cert-manager-webhook-duckdns
+        git pull origin main 2>/dev/null || true
+        cd /tmp
+    else
+        log "Cloning DuckDNS webhook repository..."
+        git clone https://github.com/ebrianne/cert-manager-webhook-duckdns.git || error "Failed to clone DuckDNS webhook repository"
+    fi
     
-    log "Installing cert-manager-webhook-duckdns Helm chart..."
+    log "Installing cert-manager-webhook-duckdns from local chart..."
     helm upgrade --install cert-manager-webhook-duckdns \
-        ebrianne.github.io/cert-manager-webhook-duckdns \
+        /tmp/cert-manager-webhook-duckdns/deploy/cert-manager-webhook-duckdns \
         --namespace cert-manager \
         --set duckdns.domain=fk-webserver.duckdns.org \
-        --set duckdns.token="$DUCKDNS_TOKEN" \
-        --set clusterIssuer.production.enabled=true \
-        --set clusterIssuer.production.email="${LETSENCRYPT_EMAIL}" \
-        --set clusterIssuer.staging.enabled=false \
-        --wait=false
+        --set duckdns.token="$DUCKDNS_TOKEN"
     
-    success "DuckDNS webhook Helm chart installed"
+    success "DuckDNS webhook installed"
     
     log "Waiting for DuckDNS webhook pod to be ready..."
     sleep 30
@@ -377,8 +381,28 @@ else
 fi
 
 log "Creating Let's Encrypt ClusterIssuer (DNS-01 with DuckDNS)..."
-# Use envsubst to replace LETSENCRYPT_EMAIL variable in ClusterIssuer manifest
-envsubst < /vagrant/k8s/50-cert-issuer.yaml | "$KUBECTL" apply -f -
+# Create ClusterIssuer with correct API group (acme.duckdns.org) for DNS-01 validation
+cat <<EOFISSUER | "$KUBECTL" apply -f -
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cert-manager-webhook-duckdns-production
+spec:
+  acme:
+    email: $LETSENCRYPT_EMAIL
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-duckdns-key
+    solvers:
+      - dns01:
+          webhook:
+            groupName: acme.duckdns.org
+            solverName: duckdns
+            config:
+              tokenSecretRef:
+                name: duckdns-token
+                key: token
+EOFISSUER
 
 success "Certificate manager installed"
 sleep 120

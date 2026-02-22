@@ -16,7 +16,7 @@ apt-get update
 apt-get install -y kubeadm=1.35.0-1.1 kubelet=1.35.0-1.1 kubectl=1.35.0-1.1
 apt-mark hold kubeadm kubelet kubectl
 
-# Enable kubelet
+# Enable kubelet (but don't start - kubeadm init will create the config first)
 systemctl enable kubelet
 
 echo "✓ Kubeadm tools installed (v1.35.0)"
