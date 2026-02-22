@@ -1,5 +1,0 @@
-# Namespace for FK webstack
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: fk-webstack
