@@ -23,7 +23,8 @@ export KUBECONFIG=/root/.kube/config
 
 # Load environment variables from .env.local (DuckDNS token, Let's Encrypt email)
 if [ -f /vagrant/.env.local ]; then
-    export $(grep -v '^#' /vagrant/.env.local | xargs)
+    # Strip Windows line endings (\r) from .env.local before sourcing
+    export $(grep -v '^#' /vagrant/.env.local | tr -d '\r' | xargs)
 else
     warning "⚠️  .env.local not found. If using DuckDNS, create it in workspace root with DUCKDNS_TOKEN and LETSENCRYPT_EMAIL"
 fi
@@ -351,7 +352,8 @@ else
     log "DUCKDNS_TOKEN is set, installing webhook from GitHub repository..."
     
     # Create DuckDNS token secret in cert-manager namespace
-    "$KUBECTL" create secret generic duckdns-token --from-literal=token="$DUCKDNS_TOKEN" -n cert-manager --dry-run=client -o yaml | "$KUBECTL" apply -f -
+    # Create DuckDNS token secret, stripping any carriage returns from the token
+    "$KUBECTL" create secret generic duckdns-token --from-literal=token="$(echo -n "$DUCKDNS_TOKEN" | tr -d '\r')" -n cert-manager --dry-run=client -o yaml | "$KUBECTL" apply -f -
     success "DuckDNS token secret created"
     
     # Clone DuckDNS webhook from GitHub and install locally
@@ -371,7 +373,7 @@ else
         /tmp/cert-manager-webhook-duckdns/deploy/cert-manager-webhook-duckdns \
         --namespace cert-manager \
         --set duckdns.domain=fk-webserver.duckdns.org \
-        --set duckdns.token="$DUCKDNS_TOKEN"
+        --set "duckdns.token=$(echo -n "$DUCKDNS_TOKEN" | tr -d '\r')"
     
     success "DuckDNS webhook installed"
     
