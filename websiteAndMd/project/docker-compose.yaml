@@ -1,0 +1,36 @@
+# Docker Compose voor basispunten (stack in Docker)
+services:
+  # MongoDB database
+  fk-mongo:
+    image: mongo:6
+    container_name: fk-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      # Init script om naam te zetten
+      - ./db/init/init.js:/docker-entrypoint-initdb.d/init.js:ro
+
+  # FastAPI service
+  fk-api:
+    build: ./api
+    container_name: fk-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Mongo verbinding en defaults
+      - MONGO_URL=mongodb://fk-mongo:27017
+      - MONGO_DB=fkdb
+      - MONGO_COLLECTION=profile
+      - NAME_KEY=name
+      - DEFAULT_NAME=Frank Koch
+    depends_on:
+      - fk-mongo
+
+  # Lighttpd frontend
+  fk-frontend:
+    build: ./frontend
+    container_name: fk-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - fk-api

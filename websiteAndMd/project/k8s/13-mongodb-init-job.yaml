@@ -1,0 +1,29 @@
+# Job to initialize the name in MongoDB
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fk-mongo-init-job
+  namespace: fk-webstack
+spec:
+  template:
+    metadata:
+      labels:
+        app: fk-mongo-init
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Wait until MongoDB is reachable
+        - name: wait-for-mongo
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z fk-mongodb 27017; do echo waiting for mongo; sleep 2; done"]
+      containers:
+        - name: run-init
+          image: mongo:6
+          command: ["mongosh", "mongodb://fk-mongodb:27017", "/scripts/init.js"]
+          volumeMounts:
+            - name: init-script
+              mountPath: /scripts
+      volumes:
+        - name: init-script
+          configMap:
+            name: fk-mongo-init

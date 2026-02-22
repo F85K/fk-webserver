@@ -91,3 +91,6 @@ ci-secrets.txt
 # Kubeadm join commands
 join-*.sh
 join-command-*.txt
+
+# Obsolete/archived files (excluded from syncs)
+other/

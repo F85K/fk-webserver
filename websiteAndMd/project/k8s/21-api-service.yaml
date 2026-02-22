@@ -1,0 +1,12 @@
+# Service for FastAPI (internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-api
+  namespace: fk-webstack
+spec:
+  selector:
+    app: fk-api
+  ports:
+    - port: 8000
+      targetPort: 8000

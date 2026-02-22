@@ -1,0 +1,17 @@
+# ConfigMap with init script for MongoDB
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fk-mongo-init
+  namespace: fk-webstack
+data:
+  init.js: |
+    // Init script: set default name
+    const dbName = "fkdb";
+    const collectionName = "profile";
+    const dbRef = db.getSiblingDB(dbName);
+    dbRef[collectionName].updateOne(
+      { key: "name" },
+      { $set: { key: "name", value: "Frank Koch" } },
+      { upsert: true }
+    );

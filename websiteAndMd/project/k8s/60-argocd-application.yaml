@@ -1,4 +1,4 @@
-# ArgoCD Application (GitOps) - vervang repoURL en path
+# ArgoCD Application (GitOps)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -10,8 +10,6 @@ spec:
     repoURL: https://github.com/F85K/fk-webserver.git
     targetRevision: main
     path: k8s
-    ignore:
-      - name: other
   destination:
     server: https://kubernetes.default.svc
     namespace: fk-webstack
