@@ -373,13 +373,17 @@ else
         /tmp/cert-manager-webhook-duckdns/deploy/cert-manager-webhook-duckdns \
         --namespace cert-manager \
         --set duckdns.domain=fk-webserver.duckdns.org \
-        --set "duckdns.token=$(echo -n "$DUCKDNS_TOKEN" | tr -d '\r')"
+        --set secret.existingSecret=true \
+        --set secret.existingSecretName=duckdns-token
     
     success "DuckDNS webhook installed"
     
     log "Waiting for DuckDNS webhook pod to be ready..."
     sleep 30
     "$KUBECTL" -n cert-manager rollout status deployment/cert-manager-webhook-duckdns --timeout=5m || warning "DuckDNS webhook deployment timed out"
+    
+    log "Note: DNS-01 validation requires DuckDNS API access. If this expires or fails, you may need to manually configure cert-manager."
+    log "For production use, consider using HTTP-01 instead or a different DNS provider supported by cert-manager."
 fi
 
 log "Creating Let's Encrypt ClusterIssuer (DNS-01 with DuckDNS)..."
