@@ -21,6 +21,13 @@ set -e
 export PATH=$PATH:/usr/local/bin:/usr/bin:/bin
 export KUBECONFIG=/root/.kube/config
 
+# Load environment variables from .env.local (DuckDNS token, Let's Encrypt email)
+if [ -f /vagrant/.env.local ]; then
+    export $(grep -v '^#' /vagrant/.env.local | xargs)
+else
+    warning "⚠️  .env.local not found. If using DuckDNS, create it in workspace root with DUCKDNS_TOKEN and LETSENCRYPT_EMAIL"
+fi
+
 # Use full path to kubectl (apt installs to /usr/bin)
 KUBECTL=/usr/bin/kubectl
 
@@ -336,8 +343,32 @@ wait_for_deployment "cert-manager-webhook" "cert-manager" 120
 log "Creating self-signed ClusterIssuer..."
 "$KUBECTL" apply -f /vagrant/k8s/51-selfsigned-issuer.yaml
 
-log "Creating Let's Encrypt ClusterIssuer (DNS-01)..."
-# Note: DUCKDNS_TOKEN should be set in environment
+log "Installing DuckDNS webhook for DNS-01 validation..."
+if [ -z "$DUCKDNS_TOKEN" ]; then
+    warning "DUCKDNS_TOKEN not set - DuckDNS DNS-01 validation will not work"
+    warning "Create .env.local in workspace root with: DUCKDNS_TOKEN=your_token"
+else
+    log "DUCKDNS_TOKEN is set, installing webhook..."
+    
+    # Create DuckDNS token secret in cert-manager namespace
+    "$KUBECTL" create secret generic duckdns-token --from-literal=token="$DUCKDNS_TOKEN" -n cert-manager --dry-run=client -o yaml | "$KUBECTL" apply -f -
+    
+    # Install DuckDNS webhook via Helm
+    helm repo add cert-manager-webhook-duckdns https://ebrianne.github.io/cert-manager-webhook-duckdns/
+    helm repo update
+    
+    helm upgrade --install cert-manager-webhook-duckdns cert-manager-webhook-duckdns/cert-manager-webhook-duckdns \
+        --namespace cert-manager \
+        --set duckdns.token="$DUCKDNS_TOKEN" \
+        --set clusterIssuer.production.create=true \
+        --set clusterIssuer.production.email="${LETSENCRYPT_EMAIL:-r1034515@student.thomasmore.be}"
+    
+    log "Waiting for DuckDNS webhook pod to be ready..."
+    sleep 30
+    "$KUBECTL" -n cert-manager rollout status deployment/cert-manager-webhook-duckdns --timeout=5m || warning "DuckDNS webhook deployment timed out"
+fi
+
+log "Creating Let's Encrypt ClusterIssuer (DNS-01 with DuckDNS)..."
 "$KUBECTL" apply -f /vagrant/k8s/50-cert-issuer.yaml
 
 success "Certificate manager installed"
@@ -354,18 +385,21 @@ log "═════════════════════════
 log "Creating ingress with TLS certificate..."
 "$KUBECTL" apply -f /vagrant/k8s/40-ingress.yaml
 
-log "Waiting for certificate to be ready (this can take 5-10 minutes)..."
-for i in {1..120}; do
-    if "$KUBECTL" get certificate -n default fk-cert -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
+log "Waiting for certificate to be ready (this can take 5-10 minutes for DNS-01 validation)..."
+for i in {1..300}; do
+    if "$KUBECTL" get certificate -n fk-webstack fk-webserver-tls-cert -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
         success "Certificate is ready"
         break
     fi
     echo -n "."
-    sleep 5
+    sleep 2
 done
 
 log "Certificate status:"
-"$KUBECTL" describe certificate fk-cert -n default 2>/dev/null | tail -20
+"$KUBECTL" describe certificate fk-webserver-tls-cert -n fk-webstack 2>/dev/null | tail -20 || warning "Certificate not yet ready"
+
+log "Checking ACME orders:"
+"$KUBECTL" get orders -n fk-webstack 2>/dev/null || log "No ACME orders found yet"
 
 success "Ingress with TLS configured"
 sleep 60

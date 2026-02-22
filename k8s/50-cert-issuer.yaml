@@ -1,16 +1,23 @@
-# Cert-Manager ClusterIssuer (Let’s Encrypt)
-# Let op: vervang email en domein in ingress voor een echte publieke domeinnaam
+# Cert-Manager DuckDNS ClusterIssuer (Let's Encrypt + DNS-01)
+# Uses DuckDNS webhook for DNS-01 ACME validation
+# Domain: fk-webserver.duckdns.org
+# Token: Set via DUCKDNS_TOKEN environment variable in deployment script
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: fk-letsencrypt
+  name: cert-manager-webhook-duckdns-production
 spec:
   acme:
     email: r1034515@student.thomasmore.be
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: fk-letsencrypt-key
+      name: letsencrypt-duckdns-key
     solvers:
-      - http01:
-          ingress:
-            class: nginx
+      - dns01:
+          webhook:
+            groupName: acme.d35iq2jt.com
+            solverName: duckdns
+            config:
+              tokenSecretRef:
+                name: duckdns-token
+                key: token
