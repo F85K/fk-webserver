@@ -348,34 +348,28 @@ if [ -z "$DUCKDNS_TOKEN" ]; then
     warning "DUCKDNS_TOKEN not set - DuckDNS DNS-01 validation will not work"
     warning "Create .env.local in workspace root with: DUCKDNS_TOKEN=your_token"
 else
-    log "DUCKDNS_TOKEN is set, installing webhook from GitHub..."
+    log "DUCKDNS_TOKEN is set, installing webhook via Helm chart..."
     
     # Create DuckDNS token secret in cert-manager namespace
     "$KUBECTL" create secret generic duckdns-token --from-literal=token="$DUCKDNS_TOKEN" -n cert-manager --dry-run=client -o yaml | "$KUBECTL" apply -f -
     success "DuckDNS token secret created"
     
-    # Clone DuckDNS webhook repo from GitHub
-    WEBHOOK_DIR="/tmp/cert-manager-webhook-duckdns"
-    if [ -d "$WEBHOOK_DIR" ]; then
-        log "Webhook repo exists, pulling latest..."
-        cd "$WEBHOOK_DIR" && git pull origin main 2>/dev/null || true
-        cd -
-    else
-        log "Cloning DuckDNS webhook from GitHub..."
-        git clone https://github.com/ebrianne/cert-manager-webhook-duckdns.git "$WEBHOOK_DIR" || error "Failed to clone webhook repo"
-    fi
+    # Add Helm repo and install DuckDNS webhook chart
+    helm repo add ebrianne.github.io https://ebrianne.github.io/helm-charts
+    helm repo update ebrianne.github.io
     
-    # Apply manifests from the repo
-    log "Applying DuckDNS webhook manifests..."
-    if [ -d "$WEBHOOK_DIR/deploy" ]; then
-        # Apply all YAML files from deploy directory
-        for manifest in "$WEBHOOK_DIR"/deploy/*.yaml; do
-            [ -f "$manifest" ] && "$KUBECTL" apply -f "$manifest" 2>/dev/null || true
-        done
-        success "Webhook manifests applied"
-    else
-        warning "Deploy directory not found in webhook repo"
-    fi
+    log "Installing cert-manager-webhook-duckdns Helm chart..."
+    helm upgrade --install cert-manager-webhook-duckdns \
+        ebrianne.github.io/cert-manager-webhook-duckdns \
+        --namespace cert-manager \
+        --set duckdns.domain=fk-webserver.duckdns.org \
+        --set duckdns.token="$DUCKDNS_TOKEN" \
+        --set clusterIssuer.production.enabled=true \
+        --set clusterIssuer.production.email="${LETSENCRYPT_EMAIL}" \
+        --set clusterIssuer.staging.enabled=false \
+        --wait=false
+    
+    success "DuckDNS webhook Helm chart installed"
     
     log "Waiting for DuckDNS webhook pod to be ready..."
     sleep 30
