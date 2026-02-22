@@ -5,7 +5,7 @@ metadata:
   name: fk-api
   namespace: fk-webstack
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: fk-api
@@ -14,14 +14,24 @@ spec:
       labels:
         app: fk-api
     spec:
+      initContainers:
+        - name: setup-app-dir
+          image: busybox:latest
+          command: ["mkdir", "-p", "/app/app"]
+          volumeMounts:
+            - name: fk-api-code
+              mountPath: /app
       containers:
         - name: fk-api
-          image: fk-api:latest
+          image: python:3.11-slim
           imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - "pip install --no-cache-dir -r /app/requirements.txt && cd /app && uvicorn app.main:app --host 0.0.0.0 --port 8000"
           ports:
             - containerPort: 8000
           env:
-            # Mongo connectie settings
+            # Mongo connection settings
             - name: MONGO_URL
               value: mongodb://fk-mongodb:27017
             - name: MONGO_DB
@@ -33,28 +43,49 @@ spec:
             - name: DEFAULT_NAME
               value: Frank Koch
           livenessProbe:
-            # Liveness probe: herstart bij probleem
+            # Restart on failure
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
-            # Readiness probe: pas verkeer sturen als gezond
+            # Traffic only when healthy
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 20
+            initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 10
             failureThreshold: 3
+          startupProbe:
+            # Allow time for pip install before health checks
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 40
+            periodSeconds: 5
           resources:
-            # INCREASED: FastAPI needs more memory for MongoDB connections
+            # Room for pip install to work
             requests:
               cpu: "100m"
-              memory: "256Mi"
-            limits:
-              cpu: "500m"
               memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"
+          volumeMounts:
+            - name: fk-api-code
+              mountPath: /app
+      volumes:
+        - name: fk-api-code
+          configMap:
+            name: fk-api-config
+            items:
+              - key: requirements.txt
+                path: requirements.txt
+              - key: main.py
+                path: app/main.py
+              - key: __init__.py
+                path: app/__init__.py

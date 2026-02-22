@@ -16,10 +16,14 @@ spec:
     spec:
       containers:
         - name: fk-frontend
-          image: fk-frontend:latest
+          image: nginx:1.27-alpine
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
+          volumeMounts:
+            - name: fk-frontend-config
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
           resources:
             requests:
               cpu: "50m"
@@ -27,3 +31,7 @@ spec:
             limits:
               cpu: "200m"
               memory: "128Mi"
+      volumes:
+        - name: fk-frontend-config
+          configMap:
+            name: fk-frontend-config

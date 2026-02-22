@@ -1,0 +1,39 @@
+# Optimized netplan configuration for Kubernetes cluster VMs
+# Provides both NAT (for internet) and host-only (for cluster) networking
+
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    # Primary: NAT interface for external connectivity and package downloads
+    enp0s3:
+      dhcp4: true
+      dhcp4-overrides:
+        use-dns: true
+        use-routes: true
+      dhcp6: true
+      optional: true
+      routes:
+        - to: 0.0.0.0/0
+          via: 10.0.2.2
+          metric: 100
+      
+    # Secondary: Host-only adapter for Kubernetes cluster communication
+    enp0s8:
+      dhcp4: false
+      addresses:
+        - 192.168.56.10/24  # Control plane (change to .11/.12 for workers)
+      gateway4: 192.168.56.1
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 1.1.1.1
+        search:
+          - k8s.local
+          - local
+
+  # DNS configuration
+  dns-nameservers:
+    addresses:
+      - 8.8.8.8
+      - 1.1.1.1

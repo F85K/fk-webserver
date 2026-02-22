@@ -1,0 +1,14 @@
+# MongoDB Persistent Volume (hostPath for local development)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongodb-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/mongodb
+    type: DirectoryOrCreate

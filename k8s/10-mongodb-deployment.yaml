@@ -27,9 +27,10 @@ spec:
               cpu: 500m
               memory: 512Mi
           volumeMounts:
-            # Tijdelijke opslag (voor demo)
+            # Persistent storage voor MongoDB
             - name: mongo-data
               mountPath: /data/db
       volumes:
         - name: mongo-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: mongodb-pvc

@@ -39,6 +39,28 @@ echo "✓ Kubeadm initialized"
 echo "Waiting for kubelet to start static pod containers (90 seconds)..."
 sleep 90
 
+# CRITICAL FIX: Ensure etcd is listening on port 2379 BEFORE API server tries to connect
+echo "Verifying etcd is listening on port 2379..."
+max_attempts=60
+attempts=0
+while ! ss -tlnp 2>/dev/null | grep -q ':2379' && [ $attempts -lt $max_attempts ]; do
+    echo "  etcd not listening yet... ($((attempts+1))/$max_attempts)"
+    sleep 2
+    attempts=$((attempts+1))
+done
+
+if [ $attempts -ge $max_attempts ]; then
+    echo "✗ etcd failed to start listening on port 2379 - checking status..."
+    sudo crictl ps -a | grep etcd || echo "  No etcd container found"
+    echo "Continuing anyway, but cluster may be unstable..."
+else
+    echo "✓ etcd is listening on port 2379"
+fi
+
+# Give etcd additional time to fully initialize after port opens
+echo "Waiting 30 seconds for etcd to fully initialize..."
+sleep 30
+
 # Wait for API server to be fully operational before running kubectl
 echo "Waiting for API server to respond..."
 max_attempts=120
@@ -61,9 +83,9 @@ fi
 echo "✓ API server is responding"
 
 # Wait additional time for API server to stabilize after kubelet restart
-# Extended to 60 seconds to allow etcd and static pods to fully initialize
-echo "Giving API server 60 seconds to fully stabilize..."
-sleep 60
+# Extended to 90 seconds to allow etcd and static pods to fully initialize
+echo "Giving API server 90 seconds to fully stabilize..."
+sleep 90
 
 # Verify etcd is healthy before proceeding
 echo "Verifying etcd health..."
@@ -89,55 +111,35 @@ chmod 666 /vagrant/kubeadm-config/.control-plane-ready
 
 echo "✓ Control plane is ready"
 
-# Give etcd extra time to settle after TLS bootstrap checks
-echo "Waiting 45 seconds for etcd to fully stabilize before Flannel installation..."
-sleep 45
+# CRITICAL: Give API server MUCH more time to stabilize before CNI installation
+# The API server and etcd need full stabilization - this is the biggest bottleneck
+echo "Waiting 180 seconds for API server and etcd to fully stabilize..."
+sleep 180
+
+# Verify API server is responding and stable (with retries)
+echo "Verifying API server is stable..."
+max_retries=10
+retry=0
+while ! kubectl get nodes &>/dev/null && [ $retry -lt $max_retries ]; do
+    echo "  API server check $((retry+1))/$max_retries failed, waiting 10 seconds..."
+    sleep 10
+    retry=$((retry+1))
+done
+
+if [ $retry -ge $max_retries ]; then
+    echo "⚠️  WARNING: API server still not responding after extended wait"
+    echo "   Kubernetes may be unstable. Attempting to continue anyway..."
+fi
+
+echo "Proceeding with CNI installation..."
 
 # Install Flannel CNI with specific stable version
 echo "Installing Flannel CNI (v0.25.1)..."
 
-# Retry Flannel installation up to 3 times if API server is not responsive
-MAX_RETRIES=3
-RETRY=1
-while [ $RETRY -le $MAX_RETRIES ]; do
-    echo "  Attempt $RETRY/$MAX_RETRIES..."
-    if kubectl apply -f https://github.com/flannel-io/flannel/releases/download/v0.25.1/kube-flannel.yml 2>/dev/null; then
-        echo "✓ Flannel manifests applied successfully"
-        break
-    else
-        if [ $RETRY -lt $MAX_RETRIES ]; then
-            echo "  ⚠️  Flannel apply failed, waiting 15 seconds before retry..."
-            sleep 15
-        else
-            echo "  ⚠️  Flannel apply failed after $MAX_RETRIES attempts"
-            echo "  This may be normal - Flannel will be installed shortly"
-        fi
-        RETRY=$((RETRY + 1))
-    fi
-done
+# Verify critical components
+echo "Verifying cluster health before allowing workers to join..."
+kubectl get nodes || echo "  Warning: Unable to get nodes"
+kubectl get pods -n kube-system || echo "  Warning: Unable to get system pods"
 
-# Wait for Flannel DaemonSet to be created
-echo "Waiting for Flannel DaemonSet to be created..."
-sleep 10
-
-# Wait for Flannel pod on control plane to be Running
-echo "Waiting for Flannel pod to be ready (max 3 minutes)..."
-kubectl wait --for=condition=Ready pod \
-  -l app=flannel \
-  -n kube-flannel \
-  --timeout=180s 2>/dev/null || {
-    echo "⚠️  Flannel pod not ready yet, checking status..."
-    kubectl get pods -n kube-flannel 2>/dev/null || echo "  Flannel namespace not found yet"
-    echo "Waiting additional 30 seconds..."
-    sleep 30
-}
-
-# Verify CoreDNS is starting (depends on network)
-echo "Verifying CoreDNS pods are starting..."
-kubectl get pods -n kube-system -l k8s-app=kube-dns 2>/dev/null || echo "  CoreDNS not found yet"
-
-# Mark Flannel as ready
-touch /vagrant/kubeadm-config/.flannel-ready
-chmod 666 /vagrant/kubeadm-config/.flannel-ready
-
-echo "✓ Control plane fully initialized with working CNI - ready for workers"
+echo "✓ Control plane fully initialized - ready for workers"
+echo "   (CNI will be installed during full stack deployment)"

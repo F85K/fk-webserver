@@ -1,37 +1,42 @@
-# Ingress om frontend + API via 1 domein te routeren
-# Vervang host door je eigen domein voor geldig SSL-certificaat
+# Updated Ingress for HTTPS with Let's Encrypt certificate
+# This uses cert-manager to automatically provision and renew certificates
+# Domain: fk-webserver.duckdns.org
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: fk-ingress
   namespace: fk-webstack
   annotations:
+    # Ingress class
     kubernetes.io/ingress.class: nginx
-    # Gebruik fk-selfsigned voor lokaal testen (geen extra punten)
-    # Of fk-letsencrypt voor publiek certificaat (+2 punten)
-    cert-manager.io/cluster-issuer: fk-selfsigned
+    # cert-manager annotation - DNS-01 via DuckDNS webhook
+    cert-manager.io/cluster-issuer: cert-manager-webhook-duckdns-production
+    # Redirect HTTP -> HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
+  ingressClassName: nginx
+  # TLS configuration - cert-manager will auto-provision the certificate
   tls:
-    - hosts:
-        - fk.local
-      secretName: fk-tls
+  - hosts:
+    - fk-webserver.duckdns.org
+    secretName: fk-webserver-tls-cert
   rules:
-    - host: fk.local
-      http:
-        paths:
-          # Frontend op /
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: fk-frontend
-                port:
-                  number: 80
-          # API op /api
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: fk-api
-                port:
-                  number: 8000
+  # Frontend on /
+  - host: fk-webserver.duckdns.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-frontend
+            port:
+              number: 80
+      # API on /api
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-api
+            port:
+              number: 8000

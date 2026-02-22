@@ -2,11 +2,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure
 import os
 import socket
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Config via environment variables (met defaults)
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://mongo:27017")
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://fk-mongodb:27017")
 MONGO_DB = os.getenv("MONGO_DB", "fkdb")
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "profile")
 NAME_KEY = os.getenv("NAME_KEY", "name")
@@ -24,15 +30,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Maak MongoDB client aan
-client = MongoClient(MONGO_URL)
-collection = client[MONGO_DB][MONGO_COLLECTION]
+# MongoDB client - lazy connection with timeout
+# This will NOT connect immediately, only when first query is made
+client = None
+collection = None
+
+def get_db_collection():
+    """Lazy MongoDB connection - only connect when needed"""
+    global client, collection
+    if client is None:
+        logger.info(f"Connecting to MongoDB at {MONGO_URL}")
+        client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
+        try:
+            # Test connection
+            client.admin.command('ping')
+            logger.info("✓ MongoDB connected successfully")
+        except (ServerSelectionTimeoutError, ConnectionFailure) as e:
+            logger.error(f"✗ MongoDB connection failed: {e}")
+            client = None
+            return None
+        collection = client[MONGO_DB][MONGO_COLLECTION]
+    return collection
 
 # Helper: haal naam uit MongoDB (of fallback)
 def get_name_from_db() -> str:
-    doc = collection.find_one({"key": NAME_KEY})
-    if doc and "value" in doc:
-        return str(doc["value"])
+    try:
+        coll = get_db_collection()
+        if coll is None:
+            logger.warning("MongoDB unavailable, using default name")
+            return DEFAULT_NAME
+        doc = coll.find_one({"key": NAME_KEY})
+        if doc and "value" in doc:
+            return str(doc["value"])
+    except Exception as e:
+        logger.error(f"Error reading from MongoDB: {e}")
     return DEFAULT_NAME
 
 # Endpoint: haal naam uit database

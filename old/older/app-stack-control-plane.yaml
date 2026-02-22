@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-mongodb
+  namespace: fk-webstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fk-mongodb
+  template:
+    metadata:
+      labels:
+        app: fk-mongodb
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fk-control
+      hostNetwork: true
+      containers:
+        - name: fk-mongodb
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+      volumes:
+        - name: mongo-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-mongodb
+  namespace: fk-webstack
+spec:
+  selector:
+    app: fk-mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-api
+  namespace: fk-webstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fk-api
+  template:
+    metadata:
+      labels:
+        app: fk-api
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fk-control
+      hostNetwork: true
+      containers:
+        - name: fk-api
+          image: fk-api:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MONGO_URL
+              value: "mongodb://127.0.0.1:27017/fk_database"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-api
+  namespace: fk-webstack
+spec:
+  selector:
+    app: fk-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fk-frontend
+  namespace: fk-webstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fk-frontend
+  template:
+    metadata:
+      labels:
+        app: fk-frontend
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fk-control
+      hostNetwork: true
+      containers:
+        - name: fk-frontend
+          image: fk-frontend:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fk-frontend
+  namespace: fk-webstack
+spec:
+  selector:
+    app: fk-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: NodePort

@@ -76,8 +76,36 @@ if [ ! -s "$JOIN_CMD" ]; then
     exit 1
 fi
 
+# CRITICAL FIX: Verify API server is actually accessible from worker before joining
+echo "✓ Join command found"
+echo "⏳ Verifying API server connectivity from worker node..."
+API_SERVER="192.168.56.10:6443"
+MAX_API_WAIT=300  # 5 minutes
+API_ELAPSED=0
+
+while [ $API_ELAPSED -lt $MAX_API_WAIT ]; do
+    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/192.168.56.10/6443" 2>/dev/null; then
+        echo "✓ API server is accessible on port 6443"
+        break
+    fi
+    REMAINING=$((MAX_API_WAIT - API_ELAPSED))
+    echo "   [$(date '+%H:%M:%S')] API server not responding yet... ($REMAINING seconds remaining)"
+    sleep 10
+    API_ELAPSED=$((API_ELAPSED + 10))
+done
+
+if [ $API_ELAPSED -ge $MAX_API_WAIT ]; then
+    echo "❌ ERROR: API server at $API_SERVER not accessible after 5 minutes"
+    echo "   The control plane may have networking or firewall issues"
+    exit 1
+fi
+
+# Additional stabilization: wait 30 more seconds for API server to fully warm up
+echo "⏳ Waiting 30 seconds for API server to fully stabilize..."
+sleep 30
+
 # Execute join command with retries
-echo "✓ Join command found, executing..."
+echo "✓ Starting cluster join..."
 MAX_JOIN_RETRIES=3
 JOIN_ATTEMPT=1
 while [ $JOIN_ATTEMPT -le $MAX_JOIN_RETRIES ]; do
