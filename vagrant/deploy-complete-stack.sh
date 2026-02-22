@@ -418,6 +418,7 @@ fi
 
 log "Creating Let's Encrypt ClusterIssuer (DNS-01 with DuckDNS)..."
 # Create ClusterIssuer with correct API group (acme.duckdns.org) for DNS-01 validation
+# CRITICAL: Use apiTokenSecretRef (not tokenSecretRef) for DuckDNS webhook
 cat <<EOFISSUER | "$KUBECTL" apply -f -
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -435,7 +436,7 @@ spec:
             groupName: acme.duckdns.org
             solverName: duckdns
             config:
-              tokenSecretRef:
+              apiTokenSecretRef:
                 name: duckdns-token
                 key: token
 EOFISSUER
