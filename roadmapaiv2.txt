@@ -1,0 +1,308 @@
+
+---
+
+# AI EXECUTION PROMPT — KUBERNETES WEB STACK PROJECT
+
+You are an AI engineering agent responsible for **designing, implementing, deploying, validating, and documenting** a complete Kubernetes-based web application stack.
+You must strictly follow the requirements below, stay in scope, and **not invent features or shortcuts**.
+
+---
+
+## GLOBAL CONSTRAINTS (APPLY TO ALL PHASES)
+
+* Student name: **Frank Koch**
+* All container, resource, and object names must use prefix: **FK**
+* Kubernetes target version: **v1.27+ (stable)**
+* Python version: **3.9.x**
+* MongoDB version: **mongo:6.0 (DO NOT use `latest`)**
+* Image pull policy: **IfNotPresent**
+* No hardcoded IP addresses anywhere
+* All service communication via **Docker/Kubernetes DNS**
+* No database authentication until Phase 7
+* All configuration via **environment variables, ConfigMaps, or Helm values**
+* No secrets committed to Git under any circumstance
+* JavaScript “real-time updates” must be implemented via **polling every 5 seconds**
+* All files must include **detailed comments** explaining purpose and behavior
+*The given frontend .html is to be used and not to be altered in anyway 
+* All phases must generate a **timestamped deployment log**
+
+---
+
+## PROJECT OVERVIEW
+
+Deploy a 3-container web application stack:
+
+1. **Frontend**
+
+   * lighttpd web server
+   * Serves JavaScript frontend
+
+2. **API**
+
+   * FastAPI (REST)
+   * Connects to MongoDB
+   * Exposes health and metrics endpoints
+
+3. **Database**
+
+   * MongoDB
+   * Persistent storage
+
+---
+
+## PHASE 1 — DOCKER FOUNDATION
+
+### Objectives
+
+* Build Docker images for frontend, API, and MongoDB
+* Deploy locally using docker-compose
+* Verify inter-container communication and persistence
+* Generate `phase1-deployment.log`
+
+### Deliverables
+
+#### Frontend Container (`fk-frontend`)
+
+* lighttpd listening on port 80
+* index.html + JavaScript that:
+
+  * Fetches `GET /api/name` from `http://fk-api:5000`
+  * Fetches `GET /api/container-id` from `http://fk-api:5000`
+  * Updates display every 5 seconds
+  * Displays:
+
+    * Student name (Frank Koch)
+    * API container ID
+* lighttpd.conf included and documented
+
+#### API Container (`fk-api`)
+
+* FastAPI on port 5000
+* Endpoints:
+
+  * `GET /api/name`
+
+    * Reads name from MongoDB
+    * Returns `{ "name": "Frank Koch" }`
+  * `GET /api/container-id`
+
+    * Returns `{ "container_id": os.getenv("HOSTNAME") }`
+  * `GET /api/health`
+
+    * Returns `{ "status": "healthy" }`
+* MongoDB connection string:
+
+  ```
+  mongodb://fk-mongo:27017/fk_webdb
+  ```
+* requirements.txt: fastapi, uvicorn, pymongo
+* All endpoints fully commented
+
+#### Database Container (`fk-mongo`)
+
+* Image: mongo:6.0
+* Init script (`init.js`) creates:
+
+  * Database: fk_webdb
+  * Collection: users
+  * Document: `{ _id: 1, name: "Frank Koch" }`
+* Persistent volume mounted at `/data/db`
+* Port 27017
+
+#### docker-compose.yml
+
+* Version: 3.8
+* Services: fk-mongo, fk-api, fk-frontend
+* Custom bridge network: `fk-network`
+* Health checks for all services
+* Fully commented environment variables
+
+### Testing
+
+* `docker-compose up -d`
+* Validate API endpoints via curl
+* Validate frontend via browser
+* Restart containers and verify MongoDB persistence
+
+---
+
+## PHASE 2 — KUBERNETES DEPLOYMENT
+
+### Objectives
+
+* Deploy stack to Kubernetes (minikube, microk8s, or kind)
+* Create namespace `fk-webstack`
+* Generate `phase2-deployment.log`
+
+### Deliverables
+
+* Kubernetes manifests in `k8s/`:
+
+  * Namespace
+  * MongoDB Deployment + PVC + Service
+  * API Deployment (1 replica) + Service
+  * Frontend Deployment (1 replica) + NodePort Service (30080 → 80)
+  * ConfigMaps (non-sensitive only)
+* API liveness probe on `/api/health`
+* Validate:
+
+  * Pods running
+  * Services reachable
+  * Frontend accessible
+  * Data persists after pod restart
+
+---
+
+## PHASE 3 — HTTPS WITH CERT-MANAGER
+
+### Objectives
+
+* Secure frontend with TLS
+* Generate `phase3-deployment.log`
+
+### Deliverables
+
+* Install cert-manager v1.13.0
+* Install ingress-nginx controller
+
+  * Ingress class name: `nginx`
+* Create:
+
+  * ClusterIssuer (Let’s Encrypt)
+  * Ingress with TLS
+* Frontend accessible via HTTPS
+* Certificate auto-renewal verified
+
+---
+
+## PHASE 4 — MULTI-NODE SCALING & LOAD BALANCING
+
+### Objectives
+
+* Minimum 2 worker nodes
+* Demonstrate horizontal scaling
+* Generate `phase4-deployment.log`
+
+### Deliverables
+
+* Add second worker node if needed
+* Scale API to **3 replicas**
+* Verify pods scheduled across multiple nodes
+* Validate load balancing by refreshing frontend and observing changing container IDs
+
+---
+
+## PHASE 5 — HEALTH CHECKS & AUTO-RECOVERY
+
+### Objectives
+
+* Automatic failure detection and recovery
+* Generate `phase5-deployment.log`
+
+### Deliverables
+
+* Liveness probe (API)
+* Readiness probe (API)
+* Kill API pod manually and verify restart
+* Confirm MongoDB data persistence
+
+---
+
+## PHASE 6 — PROMETHEUS & GRAFANA MONITORING
+
+### Objectives
+
+* Monitor cluster and application metrics
+* Generate `phase6-deployment.log`
+
+### Deliverables
+
+* Deploy **kube-prometheus-stack** via Helm
+* API exposes `/metrics` endpoint
+* Prometheus scrapes API pods
+* Grafana dashboard showing:
+
+  * CPU usage
+  * Memory usage
+  * Request rates
+  * Pod restarts
+
+---
+
+## PHASE 7 — ADVANCED: KUBEADM + GITOPS
+
+### Part A — Kubeadm Cluster
+
+* 1 control plane + 2 workers minimum
+* Run Phases 1–6 on this cluster
+
+### Part B — GitOps with Helm & ArgoCD
+
+#### Helm
+
+* Create Helm chart `fk-webstack`
+* Parameterize images, replicas, resources
+* Validate with `helm lint` and dry-run install
+
+#### Git Repository
+
+* Store only non-sensitive files
+* Enforce `.gitignore` rules for secrets
+* Never commit credentials, tokens, or keys
+
+#### ArgoCD
+
+* Install ArgoCD
+* Configure repo access via UI or sealed secrets
+* Deploy application via ArgoCD Application manifest
+* Enable auto-sync, prune, and self-heal
+* Validate Git-triggered deployments
+
+---
+
+## SECURITY — ABSOLUTE RULES
+
+* NEVER commit secrets, passwords, tokens, certificates, or private keys
+* Kubernetes Secrets must be encrypted (Sealed Secrets) or externally managed
+* `.env` files must never be committed
+* Always audit Git history before push
+* Follow all provided secret-handling instructions exactly
+
+---
+
+## DOCUMENTATION REQUIREMENTS
+
+* Output a **PDF** with:
+
+  1. Architecture diagram
+  2. Complete source code
+  3. Docker configuration
+  4. Kubernetes manifests
+  5. Deployment steps
+  6. Testing procedures
+  7. Monitoring and GitOps overview
+
+---
+
+## SUCCESS CRITERIA
+
+The project is successful only if:
+
+* Docker stack works locally
+* Kubernetes stack works end-to-end
+* Frontend displays live data from API and DB
+* Scaling changes container IDs
+* TLS works
+* Monitoring works
+* GitOps auto-deploys changes
+* Logs exist for **every phase**
+* No secrets ever appear in Git
+
+---
+
+**Execute all phases sequentially.
+Do not skip steps.
+Do not add features.
+Do not remove requirements.
+Document everything.**
+
