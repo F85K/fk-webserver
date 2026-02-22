@@ -349,12 +349,20 @@ if [ -z "$DUCKDNS_TOKEN" ]; then
     warning "DUCKDNS_TOKEN not set - DuckDNS DNS-01 validation will not work"
     warning "Create .env.local in workspace root with: DUCKDNS_TOKEN=your_token"
 else
-    log "DUCKDNS_TOKEN is set, installing webhook from GitHub repository..."
+    if [ -z "$LETSENCRYPT_EMAIL" ]; then
+        error "LETSENCRYPT_EMAIL is required but not set in .env.local"
+        error "Add LETSENCRYPT_EMAIL to .env.local and try again"
+        exit 1
+    fi
+    
+    log "DUCKDNS_TOKEN is set (${#DUCKDNS_TOKEN} chars), installing webhook from GitHub repository..."
+    log "Using Let's Encrypt email: $LETSENCRYPT_EMAIL"
     
     # Create DuckDNS token secret in cert-manager namespace
-    # Create DuckDNS token secret, stripping any carriage returns from the token
-    "$KUBECTL" create secret generic duckdns-token --from-literal=token="$(echo -n "$DUCKDNS_TOKEN" | tr -d '\r')" -n cert-manager --dry-run=client -o yaml | "$KUBECTL" apply -f -
-    success "DuckDNS token secret created"
+    # Strip Windows line endings (\r) from token before creating secret
+    CLEAN_TOKEN=$(printf '%s' "$DUCKDNS_TOKEN" | tr -d '\r')
+    "$KUBECTL" create secret generic duckdns-token --from-literal=token="$CLEAN_TOKEN" -n cert-manager --dry-run=client -o yaml | "$KUBECTL" apply -f -
+    success "DuckDNS token secret created (carriage returns stripped)"
     
     # Clone DuckDNS webhook from GitHub and install locally
     cd /tmp
@@ -381,6 +389,28 @@ else
     log "Waiting for DuckDNS webhook pod to be ready..."
     sleep 30
     "$KUBECTL" -n cert-manager rollout status deployment/cert-manager-webhook-duckdns --timeout=5m || warning "DuckDNS webhook deployment timed out"
+    
+    log "Ensuring DuckDNS webhook has RBAC permissions to access token secret..."
+    # Add role binding to allow webhook service account to read duckdns-token secret
+    "$KUBECTL" create rolebinding duckdns-webhook-read-secret \
+        --clusterrole=read-duckdns-token \
+        --serviceaccount=cert-manager:default \
+        -n cert-manager \
+        --dry-run=client -o yaml | "$KUBECTL" apply -f - 2>/dev/null || true
+    
+    # Create role for reading duckdns-token if it doesn't exist
+    cat <<EOFROLE | "$KUBECTL" apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: read-duckdns-token
+  namespace: cert-manager
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["duckdns-token"]
+  verbs: ["get"]
+EOFROLE
     
     log "Note: DNS-01 validation requires DuckDNS API access. If this expires or fails, you may need to manually configure cert-manager."
     log "For production use, consider using HTTP-01 instead or a different DNS provider supported by cert-manager."
@@ -411,7 +441,21 @@ spec:
 EOFISSUER
 
 success "Certificate manager installed"
-sleep 120
+log "Waiting for ClusterIssuer to register with ACME server..."
+sleep 60
+
+# Verify ClusterIssuer is ready
+log "Verifying ClusterIssuer is ready..."
+for i in {1..30}; do
+    if "$KUBECTL" get clusterissuer cert-manager-webhook-duckdns-production -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
+        success "ClusterIssuer is ready"
+        break
+    fi
+    echo -n "."
+    sleep 2
+done
+
+sleep 60
 
 ################################################################################
 # PHASE 4: Ingress with TLS/HTTPS
@@ -424,24 +468,46 @@ log "═════════════════════════
 log "Creating ingress with TLS certificate..."
 "$KUBECTL" apply -f /vagrant/k8s/40-ingress.yaml
 
-log "Waiting for certificate to be ready (this can take 5-10 minutes for DNS-01 validation)..."
-for i in {1..300}; do
-    if "$KUBECTL" get certificate -n fk-webstack fk-webserver-tls-cert -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
-        success "Certificate is ready"
+log "Waiting for certificate to be ready (DNS-01 validation can take 5-10 minutes)..."
+cert_ready=false
+for i in {1..360}; do
+    cert_status=$("$KUBECTL" get certificate -n fk-webstack fk-webserver-tls-cert -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+    
+    if [ "$cert_status" = "True" ]; then
+        success "Certificate is ready!"
+        cert_ready=true
         break
     fi
-    echo -n "."
-    sleep 2
+    
+    # Show progress every 10 iterations
+    if [ $((i % 10)) -eq 0 ]; then
+        echo ""
+        log "Certificate still provisioning... (${i}s elapsed)"
+        "$KUBECTL" describe certificate fk-webserver-tls-cert -n fk-webstack 2>/dev/null | grep -A 5 "Status:" | head -8 || true
+    else
+        echo -n "."
+    fi
+    
+    sleep 1
 done
 
-log "Certificate status:"
-"$KUBECTL" describe certificate fk-webserver-tls-cert -n fk-webstack 2>/dev/null | tail -20 || warning "Certificate not yet ready"
-
-log "Checking ACME orders:"
-"$KUBECTL" get orders -n fk-webstack 2>/dev/null || log "No ACME orders found yet"
+echo ""
+if [ "$cert_ready" = "true" ]; then
+    success "Certificate provisioning complete!"
+else
+    warning "Certificate not ready after 6 minutes - may still be validating with Let's Encrypt"
+    log "Checking certificate details:"
+    "$KUBECTL" describe certificate fk-webserver-tls-cert -n fk-webstack 2>/dev/null | tail -30 || true
+    
+    log "Checking ACME order status:"
+    "$KUBECTL" describe order -n fk-webstack -l "certmanager.k8s.io/certificate-name=fk-webserver-tls-cert" 2>/dev/null | tail -20 || true
+    
+    log "Checking ACME challenge status:"
+    "$KUBECTL" get challenges -n fk-webstack -o wide 2>/dev/null || true
+fi
 
 success "Ingress with TLS configured"
-sleep 60
+sleep 30
 
 ################################################################################
 # PHASE 5: Monitoring (Prometheus + Grafana)
