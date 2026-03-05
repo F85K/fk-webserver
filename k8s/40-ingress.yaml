@@ -40,3 +40,49 @@ spec:
             name: fk-api
             port:
               number: 8000
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-api
+            port:
+              number: 8000
+      - path: /api/docs
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-api
+            port:
+              number: 8000
+  # Fallback local domain for Vagrant labs when public DNS does not point to 192.168.56.x.
+  - host: fk-webserver.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-frontend
+            port:
+              number: 80
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-api
+            port:
+              number: 8000
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-api
+            port:
+              number: 8000
+      - path: /api/docs
+        pathType: Prefix
+        backend:
+          service:
+            name: fk-api
+            port:
+              number: 8000
